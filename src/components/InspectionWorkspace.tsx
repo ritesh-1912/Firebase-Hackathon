@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { TelemetryResult } from '../services/hybridAI';
+import type { TelemetryResult, PromptAPIAvailabilityStatus } from '../services/hybridAI';
 import {
   runHybridInference,
   runLocalOnlyInference,
@@ -23,15 +23,18 @@ import {
   Lock,
   ChevronRight,
   RefreshCw,
+  Info,
 } from 'lucide-react';
 
 interface InspectionWorkspaceProps {
   uid: string;
   activeMode: InferenceModeSetting;
   isOnline: boolean;
+  promptApiStatus: PromptAPIAvailabilityStatus;
   onRecordCreated: (telemetry: TelemetryResult) => void;
   selectedRecord: AuditRecord | null;
   onSelectRecord: (record: AuditRecord | null) => void;
+  onSwitchMode?: (mode: InferenceModeSetting) => void;
 }
 
 const PRESETS = [
@@ -59,9 +62,11 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
   uid,
   activeMode,
   isOnline,
+  promptApiStatus,
   onRecordCreated,
   selectedRecord,
   onSelectRecord,
+  onSwitchMode,
 }) => {
   const [title, setTitle] = useState(PRESETS[0].title);
   const [category, setCategory] = useState<'field_inspection' | 'invoice_audit' | 'security_incident' | 'legal_compliance'>('field_inspection');
@@ -319,6 +324,37 @@ Provide a deep synthesis in JSON format with exactly the following keys:
 
   return (
     <div className="space-y-6">
+      {/* Informative Status Notice for Non-Chrome Browsers or Missing Flags (Graceful Degradation) */}
+      {promptApiStatus === 'unavailable' && (
+        <div className="p-4 bg-sky-500/10 border border-sky-500/30 rounded-2xl flex items-start justify-between text-sky-200 shadow-sm animate-fadeIn">
+          <div className="flex items-start space-x-3">
+            <Info className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-sky-100">
+                Graceful Cloud Fallback Active (Chrome Prompt API Not Detected)
+              </p>
+              <p className="text-[11px] text-sky-300 leading-relaxed">
+                This browser does not have the Chrome Prompt API (Gemini Nano) enabled. Hybrid inference will automatically route requests to Cloud <code className="font-mono bg-sky-950 px-1 py-0.5 rounded text-sky-200">gemini-3.8-flash</code> without interrupting your evaluation workflow. To test true on-device inference, open Chrome 139+ with the required Prompt API flags enabled.
+              </p>
+              {activeMode === 'only_on_device' && onSwitchMode && (
+                <div className="pt-1.5 flex items-center space-x-2">
+                  <span className="text-[10px] text-amber-300 font-medium">
+                    Evaluator override is currently set to Force Local:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onSwitchMode('prefer_on_device')}
+                    className="px-2 py-0.5 rounded bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-semibold transition cursor-pointer"
+                  >
+                    Switch to Hybrid Mode
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Offline Success Visual Confirmation Banner */}
       {localSuccessMessage && (
         <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-emerald-300 shadow-sm animate-fadeIn">

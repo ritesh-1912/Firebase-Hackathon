@@ -1,7 +1,9 @@
 import { getAI, getGenerativeModel, GoogleAIBackend } from 'firebase/ai';
-import { app, getDefaultInferenceMode } from '../lib/firebase';
+import { app, appCheck, getDefaultInferenceMode } from '../lib/firebase';
 
-// 1. Initialize Firebase AI Logic using GoogleAIBackend strictly after App Check
+// 1. Ensure Firebase App Check is initialized strictly prior to any getAI() call
+void appCheck;
+
 export const ai = getAI(app, {
   backend: new GoogleAIBackend(),
 });

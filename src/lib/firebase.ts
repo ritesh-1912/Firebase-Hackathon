@@ -26,42 +26,58 @@ import {
   type AppCheck,
 } from 'firebase/app-check';
 
-// 1. Firebase configuration from environment variables with safe fallbacks
+// 1. Firebase configuration strictly loaded from environment variables
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDemoPlaceholderKeyForDevBuild12345',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'build-hybrid-ai-2026.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'build-hybrid-ai-2026',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'build-hybrid-ai-2026.firebasestorage.app',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '1029384756',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:1029384756:web:abcdef1234567890',
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || '',
 };
 
 // 2. Initialize Firebase App
 export const app: FirebaseApp = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
 
 // 3. Configure App Check debug token BEFORE initializing App Check
-// Supports local judging, emulators, and CI environments
+// Supports local judging, emulators, and CI environments without hardcoding secrets
 if (typeof self !== 'undefined') {
   const debugToken = import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN;
-  if (import.meta.env.DEV || debugToken) {
+  if (debugToken) {
     (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string }).FIREBASE_APPCHECK_DEBUG_TOKEN =
-      debugToken || true;
+      debugToken === 'true' ? true : debugToken;
+  } else if (import.meta.env.DEV) {
+    // In local development mode, automatically generate a debug token in browser console
+    (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   }
 }
 
 // 4. Initialize Firebase App Check strictly before any getAI() calls
 let appCheckInstance: AppCheck | null = null;
 if (typeof window !== 'undefined') {
-  const recaptchaSiteKey =
-    import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'; // Standard dev testing key
-  try {
-    appCheckInstance = initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(recaptchaSiteKey),
-      isTokenAutoRefreshEnabled: true,
-    });
-  } catch (error) {
-    console.warn('[Firebase] App Check initialization warning:', error);
+  const recaptchaSiteKey = import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY;
+  if (recaptchaSiteKey) {
+    try {
+      appCheckInstance = initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+        isTokenAutoRefreshEnabled: true,
+      });
+    } catch (error) {
+      console.warn('[Firebase] App Check initialization warning:', error);
+    }
+  } else if (import.meta.env.DEV || import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN) {
+    // If running in development or debug environment, initialize with debug provider
+    try {
+      appCheckInstance = initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider('debug-provider-local'),
+        isTokenAutoRefreshEnabled: true,
+      });
+    } catch (error) {
+      console.info('[Firebase] App Check debug provider notice:', error);
+    }
+  } else {
+    console.info('[Firebase] App Check: No VITE_FIREBASE_RECAPTCHA_SITE_KEY provided in environment.');
   }
 }
 export const appCheck = appCheckInstance;

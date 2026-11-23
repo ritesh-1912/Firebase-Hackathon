@@ -167,9 +167,11 @@ export default function App() {
               uid={user.uid}
               activeMode={activeMode}
               isOnline={isOnline}
+              promptApiStatus={promptApiStatus}
               onRecordCreated={handleRecordCreated}
               selectedRecord={selectedRecord}
               onSelectRecord={setSelectedRecord}
+              onSwitchMode={(mode) => handleSetMode(mode, true)}
             />
 
             {/* 3. Firestore Offline Persistence Records History */}
