@@ -13,12 +13,12 @@ import {
 } from './services/hybridAI';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { TelemetryHeader, type InferenceModeSetting } from './components/TelemetryHeader';
-import { InspectionWorkspace } from './components/InspectionWorkspace';
-import { RecordsHistory } from './components/RecordsHistory';
+import { SynapseWorkspace } from './components/SynapseWorkspace';
+import { WorkspacesHistory } from './components/WorkspacesHistory';
 import {
-  subscribeToAuditRecords,
-  type AuditRecord,
-} from './services/recordsService';
+  subscribeToWorkspaces,
+  type WorkspaceRecord,
+} from './services/workspaceStore';
 
 export default function App() {
   // Auth state
@@ -42,9 +42,9 @@ export default function App() {
   // Live Telemetry from the most recent request
   const [lastTelemetry, setLastTelemetry] = useState<TelemetryResult | null>(null);
 
-  // Persistent Firestore Records
-  const [records, setRecords] = useState<AuditRecord[]>([]);
-  const [selectedRecord, setSelectedRecord] = useState<AuditRecord | null>(null);
+  // Persistent Firestore Workspaces
+  const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
+  const [currentWorkspace, setCurrentWorkspace] = useState<WorkspaceRecord | null>(null);
 
   // 1. Auto-authenticate judges via Anonymous Auth on first load
   useEffect(() => {
@@ -53,7 +53,6 @@ export default function App() {
         setUser(currentUser);
         setAuthLoading(false);
       } else {
-        // Auto-authenticate anonymously for judges
         try {
           setAuthLoading(true);
           const cred = await signInAnonymouslyUser();
@@ -104,25 +103,28 @@ export default function App() {
     });
   }, [manualOverride]);
 
-  // 4. Real-time Firestore records listener with offline persistence
+  // 4. Real-time Firestore workspaces listener with offline persistence
   useEffect(() => {
     if (!user) {
-      setRecords([]);
+      setWorkspaces([]);
       return;
     }
 
-    const unsubscribe = subscribeToAuditRecords(
+    const unsubscribe = subscribeToWorkspaces(
       user.uid,
-      (fetchedRecords) => {
-        setRecords(fetchedRecords);
+      (list) => {
+        setWorkspaces(list);
+        if (list.length > 0 && !currentWorkspace) {
+          setCurrentWorkspace(list[0]);
+        }
       },
       (err) => {
-        console.warn('[App] Realtime records subscription warning:', err);
+        console.warn('[App] Realtime workspaces subscription warning:', err);
       }
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, currentWorkspace]);
 
   // Mode override handlers
   const handleSetMode = (mode: InferenceModeSetting, isManual: boolean) => {
@@ -135,7 +137,7 @@ export default function App() {
     setActiveMode(remoteConfigMode);
   };
 
-  const handleRecordCreated = (telemetry: TelemetryResult) => {
+  const handleRecordTelemetry = (telemetry: TelemetryResult) => {
     setLastTelemetry(telemetry);
   };
 
@@ -162,40 +164,40 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
         {user ? (
           <>
-            {/* 2. Core Application Workflow */}
-            <InspectionWorkspace
+            {/* 2. SynapseVault Core Pipeline Workspace */}
+            <SynapseWorkspace
               uid={user.uid}
               activeMode={activeMode}
               isOnline={isOnline}
               promptApiStatus={promptApiStatus}
-              onRecordCreated={handleRecordCreated}
-              selectedRecord={selectedRecord}
-              onSelectRecord={setSelectedRecord}
+              currentWorkspace={currentWorkspace}
+              onWorkspaceUpdated={(ws) => setCurrentWorkspace(ws)}
+              onRecordTelemetry={handleRecordTelemetry}
               onSwitchMode={(mode) => handleSetMode(mode, true)}
             />
 
-            {/* 3. Firestore Offline Persistence Records History */}
-            <RecordsHistory
-              records={records}
-              selectedRecordId={selectedRecord ? selectedRecord.id : null}
-              onSelectRecord={(rec) => setSelectedRecord(rec)}
+            {/* 3. Firestore Offline Persistence Workspaces History */}
+            <WorkspacesHistory
+              workspaces={workspaces}
+              selectedWorkspaceId={currentWorkspace ? currentWorkspace.id : null}
+              onSelectWorkspace={(ws) => setCurrentWorkspace(ws)}
               uid={user.uid}
             />
           </>
         ) : (
           <div className="h-64 flex flex-col items-center justify-center text-slate-400 space-y-2">
             <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs">Initializing anonymous session for judge...</p>
+            <p className="text-xs">Initializing anonymous session for evaluator...</p>
           </div>
         )}
       </main>
 
       {/* Footer */}
       <footer className="border-t border-slate-900 bg-slate-950/80 px-6 py-4 text-center text-xs text-slate-500">
-        <span>HybridAudit AI • #BuildHybridAI Hackathon 2026 • Powered by </span>
+        <span>SynapseVault • #BuildHybridAI Hackathon 2026 • </span>
         <span className="text-emerald-400 font-mono">Chrome Prompt API (Gemini Nano)</span>
         <span> + </span>
-        <span className="text-indigo-400 font-mono">Firebase AI Logic (Gemini 3.8 Flash)</span>
+        <span className="text-indigo-400 font-mono">Firebase AI Logic (Gemini 3.8 Flash + TTS)</span>
       </footer>
     </div>
   );

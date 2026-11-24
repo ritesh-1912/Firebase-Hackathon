@@ -57,12 +57,12 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-sm tracking-tight text-white">HybridAudit AI</span>
+              <span className="font-bold text-sm tracking-tight text-white">SynapseVault</span>
               <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium px-2 py-0.5 rounded-full text-[10px]">
                 #BuildHybridAI 2026
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Offline-First Document & Field Inspection Intelligence</p>
+            <p className="text-[11px] text-slate-400">Local-First Multimodal Knowledge Graph & Private Research OS</p>
           </div>
         </div>
 
@@ -211,6 +211,11 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
                 ) : (
                   <span className="text-[10px] text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded border border-emerald-500/30">
                     Direct
+                  </span>
+                )}
+                {lastTelemetry.estimatedTokensSaved > 0 && (
+                  <span className="text-[10px] text-cyan-400 font-mono hidden lg:inline">
+                    +{lastTelemetry.estimatedTokensSaved} toks (${lastTelemetry.estimatedCostSavedUsd.toFixed(5)})
                   </span>
                 )}
               </div>

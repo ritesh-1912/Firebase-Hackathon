@@ -18,6 +18,7 @@ import {
   getRemoteConfig,
   fetchAndActivate,
   getString,
+  getBoolean,
   type RemoteConfig,
 } from 'firebase/remote-config';
 import {
@@ -116,6 +117,7 @@ if (typeof window !== 'undefined') {
     };
     remoteConfigInstance.defaultConfig = {
       default_inference_mode: 'prefer_on_device',
+      auto_pii_firewall: true,
     };
     // Fetch and activate remote parameters in background
     fetchAndActivate(remoteConfigInstance).catch((err) => {
@@ -128,8 +130,20 @@ if (typeof window !== 'undefined') {
 export const remoteConfig = remoteConfigInstance;
 
 /**
- * Reads the default_inference_mode from Firebase Remote Config with fallback to 'prefer_on_device'
+ * Reads the auto_pii_firewall parameter from Firebase Remote Config with fallback to true
  */
+export async function getAutoPiiFirewallEnabled(): Promise<boolean> {
+  if (!remoteConfigInstance) {
+    return true;
+  }
+  try {
+    await fetchAndActivate(remoteConfigInstance);
+    return getBoolean(remoteConfigInstance, 'auto_pii_firewall');
+  } catch (err) {
+    console.warn('[Firebase] Failed to fetch remote config auto_pii_firewall:', err);
+    return true;
+  }
+}
 export async function getDefaultInferenceMode(): Promise<'prefer_on_device' | 'only_on_device' | 'only_in_cloud'> {
   if (!remoteConfigInstance) {
     return 'prefer_on_device';
