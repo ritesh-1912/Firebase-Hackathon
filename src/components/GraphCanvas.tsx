@@ -17,6 +17,7 @@ import {
   Cpu,
   Binary,
 } from 'lucide-react';
+import { ErrorBoundary } from './ErrorBoundary';
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -294,22 +295,24 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </div>
           </div>
         ) : (
-          <ReactFlow
-            nodes={flowNodes}
-            edges={flowEdges}
-            fitView
-            minZoom={0.2}
-            maxZoom={1.8}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background color="#1e293b" gap={20} size={1} />
-            <Controls className="bg-slate-900 border border-slate-800 text-white rounded-xl shadow-lg" />
-            <MiniMap
-              nodeColor={(n: any) => n.style?.background || '#334155'}
-              className="bg-slate-900/90 border border-slate-800 rounded-xl"
-              maskColor="rgba(2, 6, 23, 0.75)"
-            />
-          </ReactFlow>
+          <ErrorBoundary fallbackTitle="Interactive Graph Canvas Guard" fallbackMessage="An issue was intercepted while rendering the Knowledge Graph nodes. Use the reset button below or refresh.">
+            <ReactFlow
+              nodes={flowNodes}
+              edges={flowEdges}
+              fitView
+              minZoom={0.2}
+              maxZoom={1.8}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background color="#1e293b" gap={20} size={1} />
+              <Controls className="bg-slate-900 border border-slate-800 text-white rounded-xl shadow-lg" />
+              <MiniMap
+                nodeColor={(n: any) => n.style?.background || '#334155'}
+                className="bg-slate-900/90 border border-slate-800 rounded-xl"
+                maskColor="rgba(2, 6, 23, 0.75)"
+              />
+            </ReactFlow>
+          </ErrorBoundary>
         )}
       </div>
 

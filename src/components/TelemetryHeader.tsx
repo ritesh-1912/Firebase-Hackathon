@@ -11,6 +11,7 @@ import {
   Database,
   Cloud,
   Sparkles,
+  BarChart3,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
@@ -24,6 +25,7 @@ interface TelemetryHeaderProps {
   manualOverride: boolean;
   onSetMode: (mode: InferenceModeSetting, isManual: boolean) => void;
   onResetToRemoteConfig: () => void;
+  onOpenBenchmark?: () => void;
   lastTelemetry: TelemetryResult | null;
   cumulativeSavings: {
     totalLocalRuns: number;
@@ -46,6 +48,7 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
   manualOverride,
   onSetMode,
   onResetToRemoteConfig,
+  onOpenBenchmark,
   lastTelemetry,
   cumulativeSavings,
   isOnline,
@@ -214,6 +217,18 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Side-by-Side Benchmark Trigger Button */}
+          {onOpenBenchmark && (
+            <button
+              onClick={onOpenBenchmark}
+              className="flex items-center space-x-1.5 px-2.5 py-1 bg-gradient-to-r from-cyan-600/20 via-indigo-600/20 to-purple-600/20 hover:from-cyan-600/35 hover:to-indigo-600/35 text-cyan-300 border border-cyan-500/30 rounded-lg text-xs font-semibold transition shadow-sm cursor-pointer"
+              title="Open Side-by-Side Hybrid Benchmark: On-Device Nano vs Cloud Flash"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Benchmark</span>
+            </button>
+          )}
 
           {/* Judge Authentication Pill */}
           {authLoading ? (

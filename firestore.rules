@@ -1,0 +1,79 @@
+rules_version = '2';
+
+// ===============================================================
+// SynapseVault Cloud Firestore Security Rules
+// ===============================================================
+//
+// Assumed Data Models:
+//
+// 1. users/{userId}/workspaces/{workspaceId}
+//    - id: string (matches workspaceId)
+//    - name: string
+//    - description: string (optional)
+//    - sources: list of source document metadata
+//    - redactedText: string (PII-sanitized text)
+//    - redactionsCount: number
+//    - nodes: list of GraphNode {id, label, category, summary, confidence}
+//    - edges: list of GraphEdge {source, target, relation}
+//    - cloudBriefing: map (optional synthesized briefing)
+//    - lastTelemetry: map (optional telemetry metrics)
+//    - audioGenerated: bool (optional)
+//    - audioUrl: string (optional)
+//    - isOfflineCreated: bool
+//    - createdAt: timestamp / number
+//    - updatedAt: timestamp / number
+//
+// 2. users/{userId}/records/{recordId}
+//    - id: string
+//    - prompt: string
+//    - executionSource: string ("on-device" | "cloud")
+//    - latencyMs: number
+//    - timestamp: timestamp / number
+//
+// Principle: Strict User Isolation & Default Deny
+// - Anonymous and Authenticated users may ONLY read and write their own data.
+// - All access requires request.auth != null && request.auth.uid == userId.
+// - Public read/write is completely denied across all collections.
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for auth verification
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Default deny for all unspecified collections
+    match /{document=**} {
+      allow read, write: false;
+    }
+
+    // User profile document
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // Workspaces subcollection and all descendant subcollections
+      match /workspaces/{workspaceId} {
+        allow read, write: if isOwner(userId);
+
+        match /{allSubcollections=**} {
+          allow read, write: if isOwner(userId);
+        }
+      }
+
+      // Legacy telemetry records subcollection and subcollections
+      match /records/{recordId} {
+        allow read, write: if isOwner(userId);
+
+        match /{allSubcollections=**} {
+          allow read, write: if isOwner(userId);
+        }
+      }
+    }
+  }
+}

@@ -120,10 +120,12 @@ export const SourceVault: React.FC<SourceVaultProps> = ({
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [parsing, setParsing] = useState(false);
+  const [ingestionError, setIngestionError] = useState<string | null>(null);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setParsing(true);
+    setIngestionError(null);
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -146,6 +148,7 @@ export const SourceVault: React.FC<SourceVaultProps> = ({
         onUploadDocument(newDoc);
       } catch (err) {
         console.error('[SourceVault] Upload error:', err);
+        setIngestionError(`Failed to process ${file.name}: ${(err as Error).message || 'Unknown error'}`);
       }
     }
     setParsing(false);
@@ -193,6 +196,19 @@ export const SourceVault: React.FC<SourceVaultProps> = ({
           Populates Project Helios multi-doc case study with embedded PII and technical contradictions.
         </p>
       </div>
+
+      {/* Ingestion Error Guard Notice */}
+      {ingestionError && (
+        <div className="p-2.5 mx-3 mt-2 bg-rose-950/60 border border-rose-500/40 rounded-xl text-[11px] text-rose-300 flex items-start justify-between">
+          <div className="flex-1 mr-2">{ingestionError}</div>
+          <button
+            onClick={() => setIngestionError(null)}
+            className="text-rose-400 hover:text-rose-200 font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Drag & Drop Upload Zone */}
       <div className="p-3 border-b border-slate-800/80">

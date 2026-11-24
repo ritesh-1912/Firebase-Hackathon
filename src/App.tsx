@@ -29,6 +29,8 @@ import {
 import { GraphCanvas } from './components/GraphCanvas';
 import { IntelligencePanel } from './components/IntelligencePanel';
 import { WorkspacesHistory } from './components/WorkspacesHistory';
+import { BenchmarkModal } from './components/BenchmarkModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import {
   createWorkspace,
   saveWorkspace,
@@ -71,6 +73,7 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
+  const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
 
   // 3-Pane Studio State
   const [documents, setDocuments] = useState<SourceDocument[]>(SAMPLE_HELIOS_CASE_STUDY);
@@ -464,6 +467,7 @@ export default function App() {
         manualOverride={manualOverride}
         onSetMode={handleSetMode}
         onResetToRemoteConfig={handleResetToRemoteConfig}
+        onOpenBenchmark={() => setShowBenchmarkModal(true)}
         lastTelemetry={lastTelemetry}
         cumulativeSavings={cumulativeSavings}
         isOnline={isOnline}
@@ -536,14 +540,16 @@ export default function App() {
             mobileTab === 'graph' ? 'flex' : 'hidden lg:flex'
           }`}
         >
-          <GraphCanvas
-            nodes={nodes}
-            edges={edges}
-            selectedNode={selectedNode}
-            onSelectNode={(node) => setSelectedNode(node)}
-            onRunLocalQA={handleRunLocalQA}
-            localExtractionLatencyMs={localExtractionLatencyMs}
-          />
+          <ErrorBoundary fallbackTitle="Knowledge Graph Canvas Guard" fallbackMessage="An issue was intercepted while rendering the Knowledge Graph workspace. The canvas guard prevented a crash.">
+            <GraphCanvas
+              nodes={nodes}
+              edges={edges}
+              selectedNode={selectedNode}
+              onSelectNode={(node) => setSelectedNode(node)}
+              onRunLocalQA={handleRunLocalQA}
+              localExtractionLatencyMs={localExtractionLatencyMs}
+            />
+          </ErrorBoundary>
 
           {/* Quick Trigger for Saved Workspaces / Offline Cache Drawer */}
           <button
@@ -622,6 +628,14 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 3. Hybrid Inference Benchmark Modal (Local Nano vs Cloud Flash) */}
+      <BenchmarkModal
+        isOpen={showBenchmarkModal}
+        onClose={() => setShowBenchmarkModal(false)}
+        activeDocumentText={activeDocument?.content}
+        isOnline={isOnline}
+      />
     </div>
   );
 }
