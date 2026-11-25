@@ -23,9 +23,12 @@ import {
 } from 'firebase/remote-config';
 import {
   initializeAppCheck,
-  ReCaptchaV3Provider,
+  ReCaptchaEnterpriseProvider,
   type AppCheck,
 } from 'firebase/app-check';
+
+// Diagnostic notice surfaced in the UI if required Firebase env vars or initialization fail
+export let firebaseInitDiagnostic: string | null = null;
 
 // 1. Firebase configuration strictly loaded from environment variables
 export const firebaseConfig = {
@@ -38,47 +41,63 @@ export const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || '',
 };
 
-// 2. Initialize Firebase App
-export const app: FirebaseApp = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+const missingVars = (
+  [
+    ['VITE_FIREBASE_API_KEY', firebaseConfig.apiKey],
+    ['VITE_FIREBASE_PROJECT_ID', firebaseConfig.projectId],
+    ['VITE_FIREBASE_APP_ID', firebaseConfig.appId],
+  ] as const
+)
+  .filter(([, val]) => !val || val.startsWith('your_'))
+  .map(([name]) => name);
 
-// 3. Configure App Check debug token BEFORE initializing App Check
-// Supports local judging, emulators, and CI environments without hardcoding secrets
+if (missingVars.length > 0) {
+  firebaseInitDiagnostic = `Missing or placeholder Firebase environment variables: ${missingVars.join(', ')}. Cloud features are running in fallback diagnostic mode.`;
+  console.warn('[Firebase]', firebaseInitDiagnostic);
+}
+
+// 2. Initialize Firebase App
+let initializedApp: FirebaseApp;
+try {
+  initializedApp = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+} catch (error) {
+  const msg = error instanceof Error ? error.message : String(error);
+  firebaseInitDiagnostic = `Firebase App initialization failed: ${msg}`;
+  console.error('[Firebase]', firebaseInitDiagnostic);
+  initializedApp = getApps().length > 0 ? getApps()[0] : initializeApp({ apiKey: 'unconfigured', projectId: 'unconfigured', appId: 'unconfigured' });
+}
+export const app: FirebaseApp = initializedApp;
+
+// 3. Configure App Check debug token strictly BEFORE calling initializeAppCheck(...)
 if (typeof self !== 'undefined') {
   const debugToken = import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN;
   if (debugToken) {
-    (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string }).FIREBASE_APPCHECK_DEBUG_TOKEN =
+    (self as unknown as Record<string, unknown>).FIREBASE_APPCHECK_DEBUG_TOKEN =
       debugToken === 'true' ? true : debugToken;
   } else if (import.meta.env.DEV) {
-    // In local development mode, automatically generate a debug token in browser console
-    (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    (self as unknown as Record<string, unknown>).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   }
 }
 
 // 4. Initialize Firebase App Check strictly before any getAI() calls
+// Uses ReCaptchaEnterpriseProvider with placeholder when running via debug token so no reCAPTCHA key is required
 let appCheckInstance: AppCheck | null = null;
 if (typeof window !== 'undefined') {
-  const recaptchaSiteKey = import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY;
-  if (recaptchaSiteKey) {
-    try {
-      appCheckInstance = initializeAppCheck(app, {
-        provider: new ReCaptchaV3Provider(recaptchaSiteKey),
-        isTokenAutoRefreshEnabled: true,
-      });
-    } catch (error) {
-      console.warn('[Firebase] App Check initialization warning:', error);
+  try {
+    const recaptchaSiteKey =
+      import.meta.env.VITE_RECAPTCHA_SITE_KEY ||
+      import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY ||
+      'debug-mode-placeholder';
+    appCheckInstance = initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(recaptchaSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn('[Firebase] App Check initialization warning:', error);
+    if (!firebaseInitDiagnostic) {
+      firebaseInitDiagnostic = `Firebase App Check initialization warning: ${msg}`;
     }
-  } else if (import.meta.env.DEV || import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN) {
-    // If running in development or debug environment, initialize with debug provider
-    try {
-      appCheckInstance = initializeAppCheck(app, {
-        provider: new ReCaptchaV3Provider('debug-provider-local'),
-        isTokenAutoRefreshEnabled: true,
-      });
-    } catch (error) {
-      console.info('[Firebase] App Check debug provider notice:', error);
-    }
-  } else {
-    console.info('[Firebase] App Check: No VITE_FIREBASE_RECAPTCHA_SITE_KEY provided in environment.');
   }
 }
 export const appCheck = appCheckInstance;
@@ -144,6 +163,7 @@ export async function getAutoPiiFirewallEnabled(): Promise<boolean> {
     return true;
   }
 }
+
 export async function getDefaultInferenceMode(): Promise<'prefer_on_device' | 'only_on_device' | 'only_in_cloud'> {
   if (!remoteConfigInstance) {
     return 'prefer_on_device';

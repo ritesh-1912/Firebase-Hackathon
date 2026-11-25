@@ -5,6 +5,7 @@ import {
   signInWithGoogle,
   signOutUser,
   getDefaultInferenceMode,
+  firebaseInitDiagnostic,
 } from './lib/firebase';
 import {
   checkChromePromptAPIAvailability,
@@ -37,7 +38,7 @@ import {
   subscribeToWorkspaces,
   type WorkspaceRecord,
 } from './services/workspaceStore';
-import { FolderGit2, X } from 'lucide-react';
+import { FolderGit2, X, AlertTriangle } from 'lucide-react';
 
 export default function App() {
   // Auth state
@@ -74,6 +75,7 @@ export default function App() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
+  const [diagnosticDismissed, setDiagnosticDismissed] = useState<boolean>(false);
 
   // 3-Pane Studio State
   const [documents, setDocuments] = useState<SourceDocument[]>(SAMPLE_HELIOS_CASE_STUDY);
@@ -477,6 +479,23 @@ export default function App() {
         onGoogleSignIn={() => signInWithGoogle()}
         onSignOut={() => signOutUser()}
       />
+
+      {/* Diagnostic Banner when Firebase env vars or App Check initialization report a notice */}
+      {firebaseInitDiagnostic && !diagnosticDismissed && (
+        <div className="bg-amber-950/80 border-b border-amber-500/40 px-5 py-2 flex items-center justify-between text-xs text-amber-200 shrink-0">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>{firebaseInitDiagnostic}</span>
+          </div>
+          <button
+            onClick={() => setDiagnosticDismissed(true)}
+            className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
+            title="Dismiss diagnostic notice"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Mobile / Small Screen Navigation Tab Bar */}
       <div className="lg:hidden flex items-center justify-around bg-slate-900 border-b border-slate-800 text-xs py-2 px-4 shrink-0">

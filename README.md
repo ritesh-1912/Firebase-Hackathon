@@ -2,6 +2,8 @@
 > **Local-First Multimodal Knowledge Graph & Private Research OS**  
 > Built for the **#BuildHybridAI 2026** Hackathon with **Firebase AI Logic** (`gemini-3.8-flash`, `gemini-3.1-flash-tts-preview`) and **Chrome Prompt API** (`Gemini Nano`).
 
+- **Live Demo**: [https://synapsevault-38f14.web.app](https://synapsevault-38f14.web.app) *(Note: Firebase App Check uses a debug token for hackathon evaluation so judges can test across environments without reCAPTCHA friction.)*
+
 [![Firebase](https://img.shields.io/badge/Firebase-v11.4+-FFCA28?logo=firebase&logoColor=black)](https://firebase.google.com/)
 [![Gemini 3.8 Flash](https://img.shields.io/badge/Gemini-3.8--flash-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
 [![Gemini TTS Preview](https://img.shields.io/badge/Gemini_TTS-3.1--flash--tts-green?logo=google&logoColor=white)](https://ai.google.dev/)
@@ -122,7 +124,7 @@ SynapseVault provides a purpose-built dark-mode studio interface designed for ev
     service cloud.firestore {
       match /databases/{database}/documents {
         match /{document=**} {
-          allow read, write: false;
+          allow read, write: if false;
         }
         match /users/{userId} {
           allow read, write: if request.auth != null && request.auth.uid == userId;
