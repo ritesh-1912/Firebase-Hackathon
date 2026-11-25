@@ -13,6 +13,7 @@ import {
   queryLocalWorkspace,
   synthesizeCloudBriefing,
   generateAudioBriefing,
+  applyClientPiiFirewall,
   type TelemetryResult,
   type PromptAPIAvailabilityStatus,
   type GraphNode,
@@ -27,7 +28,7 @@ import {
   type SourceDocument,
   SAMPLE_HELIOS_CASE_STUDY,
 } from './components/SourceVault';
-import { GraphCanvas } from './components/GraphCanvas';
+import { GraphCanvas, type LocalQAResponse } from './components/GraphCanvas';
 import { IntelligencePanel } from './components/IntelligencePanel';
 import { WorkspacesHistory } from './components/WorkspacesHistory';
 import { BenchmarkModal } from './components/BenchmarkModal';
@@ -76,6 +77,7 @@ export default function App() {
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
   const [diagnosticDismissed, setDiagnosticDismissed] = useState<boolean>(false);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // 3-Pane Studio State
   const [documents, setDocuments] = useState<SourceDocument[]>(SAMPLE_HELIOS_CASE_STUDY);
@@ -260,10 +262,11 @@ export default function App() {
     [user, activeWorkspaceId]
   );
 
-  // Process all documents in the vault using local Gemini Nano (or prefer_on_device)
+  // Process all documents in the vault using active inference routing
   const handleProcessVault = async () => {
     if (documents.length === 0 || processingVault) return;
     setProcessingVault(true);
+    setPipelineError(null);
 
     const aggregatedNodes: GraphNode[] = [];
     const aggregatedEdges: GraphEdge[] = [];
@@ -280,7 +283,7 @@ export default function App() {
         const res = await redactAndExtractLocal(
           doc.content,
           doc.imageFile,
-          activeMode === 'only_on_device'
+          activeMode
         );
 
         lastTel = res;
@@ -295,20 +298,24 @@ export default function App() {
           }));
         }
 
-        // Aggregate nodes & edges
+        // Aggregate nodes & edges (namespace IDs per document to avoid cross-doc collisions)
+        const docPrefix = `d${i}_`;
         res.extraction.nodes.forEach((n) => {
-          if (!aggregatedNodes.some((existing) => existing.id === n.id)) {
-            aggregatedNodes.push(n);
+          const namespacedId = `${docPrefix}${n.id}`;
+          if (!aggregatedNodes.some((existing) => existing.id === namespacedId)) {
+            aggregatedNodes.push({ ...n, id: namespacedId });
           }
         });
 
         res.extraction.edges.forEach((e) => {
+          const src = `${docPrefix}${e.source}`;
+          const tgt = `${docPrefix}${e.target}`;
           if (
             !aggregatedEdges.some(
-              (existing) => existing.source === e.source && existing.target === e.target
+              (existing) => existing.source === src && existing.target === tgt
             )
           ) {
-            aggregatedEdges.push(e);
+            aggregatedEdges.push({ ...e, source: src, target: tgt });
           }
         });
 
@@ -350,21 +357,35 @@ export default function App() {
       );
     } catch (err) {
       console.error('[App] Process Vault error:', err);
+      // Always apply deterministic local PII firewall even if AI graph extraction hits quota/outage
+      const fallbackSanitized = documents.map((d) => {
+        const fw = applyClientPiiFirewall(d.content);
+        return {
+          doc: { ...d, status: { ...d.status, redactedLocally: true } },
+          text: `\n--- [DOCUMENT: ${d.name}] ---\n${fw.sanitized}`,
+          redactions: fw.extraRedactions,
+        };
+      });
+      setDocuments(fallbackSanitized.map((x) => x.doc));
+      setRedactedText(fallbackSanitized.map((x) => x.text).join(''));
+      setRedactions(fallbackSanitized.flatMap((x) => x.redactions));
+      setPipelineError(
+        `AI graph extraction unavailable (${err instanceof Error ? err.message : String(err)}). Deterministic local PII Firewall still sanitized all documents.`
+      );
     } finally {
       setProcessingVault(false);
     }
   };
 
-  // Run single-turn offline Q&A in the center pane
-  const handleRunLocalQA = async (question: string): Promise<string> => {
+  // Run single-turn offline Q&A in the center pane (pre-sanitizing fallback context)
+  const handleRunLocalQA = async (question: string): Promise<LocalQAResponse> => {
     const activeDoc = documents.find((d) => d.id === activeDocumentId);
-    const context = redactedText || activeDoc?.content || 'No context indexed.';
+    const rawContext = redactedText || activeDoc?.content || 'No context indexed.';
+    const safeContext = redactedText
+      ? rawContext
+      : applyClientPiiFirewall(rawContext).sanitized;
 
-    const res = await queryLocalWorkspace(
-      question,
-      context,
-      activeMode === 'only_on_device'
-    );
+    const res = await queryLocalWorkspace(question, safeContext, activeMode);
 
     setLastTelemetry(res);
 
@@ -376,13 +397,18 @@ export default function App() {
       }));
     }
 
-    return res.text;
+    return {
+      answer: res.text,
+      executionSource: res.executionSource,
+      latencyMs: res.latencyMs,
+    };
   };
 
   // Trigger Tier 2 Cloud Escalation (Gemini 3.8 Flash)
   const handleTriggerCloudSynthesis = async () => {
     if (!redactedText || isSynthesizing) return;
     setIsSynthesizing(true);
+    setPipelineError(null);
 
     try {
       const res = await synthesizeCloudBriefing({
@@ -406,6 +432,7 @@ export default function App() {
       );
     } catch (err) {
       console.error('[App] Cloud Synthesis error:', err);
+      setPipelineError(`Cloud synthesis failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsSynthesizing(false);
     }
@@ -419,6 +446,7 @@ export default function App() {
       'SynapseVault Executive Intelligence Briefing ready.';
 
     setIsGeneratingAudio(true);
+    setPipelineError(null);
     try {
       const res = await generateAudioBriefing(textToSpeak);
       if (res.audioUrl) {
@@ -437,6 +465,7 @@ export default function App() {
       );
     } catch (err) {
       console.error('[App] Audio Generation error:', err);
+      setPipelineError(`Audio briefing failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsGeneratingAudio(false);
     }
@@ -444,6 +473,7 @@ export default function App() {
 
   // Load sample Helios investigation
   const handleLoadSampleInvestigation = () => {
+    setPipelineError(null);
     setDocuments(SAMPLE_HELIOS_CASE_STUDY);
     setActiveDocumentId(SAMPLE_HELIOS_CASE_STUDY[0].id);
     setNodes([]);
@@ -491,6 +521,23 @@ export default function App() {
             onClick={() => setDiagnosticDismissed(true)}
             className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
             title="Dismiss diagnostic notice"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Pipeline Error Banner when an AI call fails */}
+      {pipelineError && (
+        <div className="bg-rose-950/80 border-b border-rose-500/40 px-5 py-2 flex items-center justify-between text-xs text-rose-200 shrink-0">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{pipelineError}</span>
+          </div>
+          <button
+            onClick={() => setPipelineError(null)}
+            className="text-rose-400 hover:text-rose-200 p-0.5 cursor-pointer"
+            title="Dismiss error notice"
           >
             <X className="w-3.5 h-3.5" />
           </button>

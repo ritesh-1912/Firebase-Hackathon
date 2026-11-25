@@ -1,5 +1,12 @@
 import { getAI, getGenerativeModel, GoogleAIBackend } from 'firebase/ai';
 import { app, appCheck, getDefaultInferenceMode, getAutoPiiFirewallEnabled } from '../lib/firebase';
+import {
+  applyClientPiiFirewall,
+  pcmToWavBlob,
+  type FirewallRedactionItem,
+} from './piiFirewall';
+
+export { applyClientPiiFirewall, pcmToWavBlob };
 
 // 1. Ensure Firebase App Check is initialized strictly prior to any getAI() call
 void appCheck;
@@ -27,7 +34,11 @@ export interface ChromePromptAPICheckResult {
 }
 
 export interface PromptAPISession {
-  prompt: (input: any) => Promise<string>;
+  prompt: (input: any, options?: any) => Promise<string>;
+  inputQuota?: number;
+  inputUsage?: number;
+  measureInputUsage?: (input: any) => Promise<number>;
+  destroy?: () => void;
 }
 
 export interface PromptAPI {
@@ -37,11 +48,7 @@ export interface PromptAPI {
 }
 
 // SynapseVault Knowledge Graph & Redaction Types
-export interface RedactionItem {
-  type: 'PERSON' | 'CONTACT' | 'FINANCIAL' | 'ID';
-  originalSnippet: string;
-  replacement: string;
-}
+export type RedactionItem = FirewallRedactionItem;
 
 export type GraphNodeCategory = 'Entity' | 'Concept' | 'Claim' | 'Risk' | 'Evidence';
 
@@ -148,63 +155,7 @@ export async function checkChromePromptAPIAvailability(
   }
 }
 
-/**
- * Client-Side Deterministic Regex PII Firewall
- * Extra safety layer guaranteeing zero leakage of credentials, cards, phones, and SSNs
- */
-export function applyClientPiiFirewall(rawText: string): {
-  sanitized: string;
-  extraRedactions: RedactionItem[];
-} {
-  let sanitized = rawText;
-  const extraRedactions: RedactionItem[] = [];
-
-  // 1. SSN / National IDs (e.g. 000-00-0000)
-  const ssnRegex = /\b\d{3}-\d{2}-\d{4}\b/g;
-  sanitized = sanitized.replace(ssnRegex, (match) => {
-    extraRedactions.push({
-      type: 'ID',
-      originalSnippet: match,
-      replacement: '[REDACTED_ID]',
-    });
-    return '[REDACTED_ID]';
-  });
-
-  // 2. Credit Cards (13-19 digits with dashes or spaces)
-  const ccRegex = /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|(?:4\d{3}|5[1-5]\d{2}|6011)[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4})\b/g;
-  sanitized = sanitized.replace(ccRegex, (match) => {
-    extraRedactions.push({
-      type: 'FINANCIAL',
-      originalSnippet: match,
-      replacement: '[REDACTED_FINANCIAL]',
-    });
-    return '[REDACTED_FINANCIAL]';
-  });
-
-  // 3. Email Addresses
-  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
-  sanitized = sanitized.replace(emailRegex, (match) => {
-    extraRedactions.push({
-      type: 'CONTACT',
-      originalSnippet: match,
-      replacement: '[REDACTED_CONTACT]',
-    });
-    return '[REDACTED_CONTACT]';
-  });
-
-  // 4. Phone numbers (e.g. 555-0199, (555) 019-9921)
-  const phoneRegex = /\b(?:\+?1[-. ]?)?\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\b/g;
-  sanitized = sanitized.replace(phoneRegex, (match) => {
-    extraRedactions.push({
-      type: 'CONTACT',
-      originalSnippet: match,
-      replacement: '[REDACTED_CONTACT]',
-    });
-    return '[REDACTED_CONTACT]';
-  });
-
-  return { sanitized, extraRedactions };
-}
+// Firewall and WAV helpers moved to ./piiFirewall and re-exported above.
 
 /**
  * Calculates estimated tokens and cost saved by running on-device
@@ -288,91 +239,178 @@ async function executeOnDevice(
 
   const session = await languageModelAPI.create(createOptions);
 
-  let fullPrompt = prompt;
-  if (options?.responseSchema) {
-    const schemaString =
-      typeof options.responseSchema === 'string'
-        ? options.responseSchema
-        : JSON.stringify(options.responseSchema, null, 2);
-    fullPrompt = `${prompt}\n\nIMPORTANT: Respond ONLY with valid JSON conforming to the following schema:\n${schemaString}\nDo not include code blocks or markdown wrappers.`;
-  }
+  try {
+    let fullPrompt = prompt;
+    if (options?.responseSchema) {
+      // Keep schema instruction compact so Chrome Nano's tight inputQuota is never exhausted
+      const compactHint =
+        typeof options.responseSchema === 'string'
+          ? options.responseSchema.slice(0, 400)
+          : '{"redactedText":string,"redactions":[{"type":"PERSON"|"CONTACT"|"FINANCIAL"|"ID","originalSnippet":string,"replacement":string}],"nodes":[{"id":string,"label":string,"category":"Entity"|"Concept"|"Claim"|"Risk"|"Evidence","summary":string,"confidence":number}],"edges":[{"source":string,"target":string,"relation":"SUPPORTS"|"CONTRADICTS"|"DEPENDS_ON"|"MENTIONS"}]}';
+      fullPrompt = `${prompt}\n\nRespond ONLY with raw valid JSON matching: ${compactHint}`;
+    }
 
-  let rawOutput = '';
-
-  if (options?.imageFile) {
-    if (typeof createImageBitmap !== 'undefined') {
+    // Proactively guard against Chrome Prompt API QuotaExceededError ("The input is too large")
+    if (!options?.imageFile && typeof session.measureInputUsage === 'function' && typeof session.inputQuota === 'number') {
       try {
-        const imageBitmap = await createImageBitmap(options.imageFile);
-        rawOutput = await session.prompt([
-          { type: 'text', value: fullPrompt },
-          { type: 'image', value: imageBitmap },
-        ]);
+        const required = await session.measureInputUsage(fullPrompt);
+        const available = Math.max(128, session.inputQuota - (session.inputUsage || 0));
+        if (required > available * 0.85) {
+          const ratio = (available * 0.8) / required;
+          const maxChars = Math.max(350, Math.floor(fullPrompt.length * ratio));
+          const suffix = options?.responseSchema
+            ? '\n\nRespond ONLY with raw valid JSON matching the schema.'
+            : '';
+          fullPrompt = `${prompt.slice(0, maxChars)}${suffix}`;
+        }
       } catch {
-        throw new Error('Multimodal image input is not supported by this local on-device model.');
+        // Ignore measurement errors and proceed with prompt execution
+      }
+    }
+
+    let rawOutput = '';
+
+    if (options?.imageFile) {
+      if (typeof createImageBitmap !== 'undefined') {
+        try {
+          const imageBitmap = await createImageBitmap(options.imageFile);
+          rawOutput = await session.prompt([
+            { type: 'text', value: fullPrompt },
+            { type: 'image', value: imageBitmap },
+          ]);
+        } catch {
+          throw new Error('Multimodal image input is not supported by this local on-device model.');
+        }
+      } else {
+        throw new Error('ImageBitmap API unavailable for local multimodal inference.');
       }
     } else {
-      throw new Error('ImageBitmap API unavailable for local multimodal inference.');
+      try {
+        rawOutput = await session.prompt(fullPrompt);
+      } catch (promptErr: any) {
+        const errMsg = String(promptErr?.message || promptErr || '');
+        if (promptErr?.name === 'QuotaExceededError' || /too large|quota/i.test(errMsg)) {
+          // One compact retry for tight browser Nano quotas
+          const trimmedPrompt = `${prompt.slice(0, 600)}\n\nRespond ONLY with concise valid JSON.`;
+          rawOutput = await session.prompt(trimmedPrompt);
+        } else {
+          throw promptErr;
+        }
+      }
     }
-  } else {
-    rawOutput = await session.prompt(fullPrompt);
-  }
 
-  let parsedJson: any = undefined;
-  if (options?.responseSchema) {
+    if (/^On-device model is not available in Chromium/i.test(rawOutput.trim())) {
+      throw new Error('On-device Gemini Nano weights are not loaded in this browser.');
+    }
+
+    let parsedJson: any = undefined;
+    if (options?.responseSchema) {
+      try {
+        const sanitized = rawOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
+        parsedJson = JSON.parse(sanitized);
+      } catch {
+        console.warn('[Prompt API] Could not parse JSON response:', rawOutput);
+      }
+    }
+
+    return { text: rawOutput, parsedJson };
+  } finally {
     try {
-      const sanitized = rawOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
-      parsedJson = JSON.parse(sanitized);
+      session.destroy?.();
     } catch {
-      console.warn('[Prompt API] Could not parse JSON response:', rawOutput);
+      // Ignore cleanup errors
     }
   }
+}
 
-  return { text: rawOutput, parsedJson };
+const CLOUD_MODEL_FALLBACK_CHAIN = [
+  'gemini-3.8-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+];
+
+function isTransientCloudError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return /\b(500|502|503|504|429)\b|high demand|overloaded|unavailable|INTERNAL|RESOURCE_EXHAUSTED|Failed to fetch|ERR_CONNECTION_RESET|timed out/i.test(
+    msg
+  );
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} request timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
 }
 
 /**
- * Low-level cloud execution via Firebase AI Logic using gemini-3.8-flash
+ * Low-level cloud execution via Firebase AI Logic (primary: gemini-3.8-flash,
+ * with single-pass transient-demand fallback and 15s per-model timeout)
  */
 async function executeInCloud(
   prompt: string,
   imageFile?: File,
   responseSchema?: any
 ): Promise<{ text: string; parsedJson?: any }> {
-  const modelConfig: any = {
-    model: 'gemini-3.8-flash',
-  };
+  const imagePart = imageFile ? await fileToGenerativePart(imageFile) : null;
+  let lastError: unknown;
 
-  if (responseSchema) {
-    modelConfig.generationConfig = {
-      responseMimeType: 'application/json',
-      responseSchema,
+  for (let i = 0; i < CLOUD_MODEL_FALLBACK_CHAIN.length; i++) {
+    const modelName = CLOUD_MODEL_FALLBACK_CHAIN[i];
+    const modelConfig: any = {
+      model: modelName,
     };
-  }
 
-  const cloudModel = getGenerativeModel(ai, modelConfig);
+    if (responseSchema) {
+      modelConfig.generationConfig = {
+        responseMimeType: 'application/json',
+        responseSchema,
+      };
+    }
 
-  let rawText = '';
-  if (imageFile) {
-    const imagePart = await fileToGenerativePart(imageFile);
-    const result = await cloudModel.generateContent([prompt, imagePart]);
-    const response = await result.response;
-    rawText = response.text();
-  } else {
-    const result = await cloudModel.generateContent(prompt);
-    const response = await result.response;
-    rawText = response.text();
-  }
+    const cloudModel = getGenerativeModel(ai, modelConfig);
 
-  let parsedJson: any = undefined;
-  if (responseSchema) {
     try {
-      parsedJson = JSON.parse(rawText);
-    } catch {
-      console.warn('[Cloud AI] Could not parse cloud JSON response:', rawText);
+      const requestPromise = imagePart
+        ? cloudModel.generateContent([prompt, imagePart])
+        : cloudModel.generateContent(prompt);
+      const result = await withTimeout(requestPromise, 15000, modelName);
+      const response = await result.response;
+      const rawText = response.text();
+
+      let parsedJson: any = undefined;
+      if (responseSchema) {
+        try {
+          parsedJson = JSON.parse(rawText);
+        } catch {
+          console.warn(`[Cloud AI:${modelName}] Could not parse cloud JSON response:`, rawText);
+        }
+      }
+
+      return { text: rawText, parsedJson };
+    } catch (err) {
+      lastError = err;
+      const hasNext = i < CLOUD_MODEL_FALLBACK_CHAIN.length - 1;
+      if (hasNext && isTransientCloudError(err)) {
+        console.warn(`[Cloud AI] ${modelName} transient error; trying ${CLOUD_MODEL_FALLBACK_CHAIN[i + 1]}:`, err);
+        continue;
+      }
+      throw err;
     }
   }
 
-  return { text: rawText, parsedJson };
+  throw lastError;
 }
 
 // -------------------------------------------------------------
@@ -436,40 +474,50 @@ export const EXTRACTION_RESPONSE_SCHEMA = {
 export async function redactAndExtractLocal(
   content: string,
   imageFile?: File,
-  forceLocal = false
+  forceLocalOrMode: boolean | 'prefer_on_device' | 'only_on_device' | 'only_in_cloud' = false
 ): Promise<TelemetryResult & { extraction: ExtractionPayload }> {
   const startTime = performance.now();
+  const forceLocal = forceLocalOrMode === true || forceLocalOrMode === 'only_on_device';
+  const forceCloud = forceLocalOrMode === 'only_in_cloud';
 
-  const extractionPrompt = `You are SynapseVault's On-Device Knowledge Graph & PII Extraction Engine.
-Analyze the provided document text or image.
-
-TASKS:
-1. PII Redaction: Replace all personal names with [REDACTED_PERSON], emails/phone numbers with [REDACTED_CONTACT], account/credit numbers/monetary balances with [REDACTED_FINANCIAL], and SSNs/ID numbers with [REDACTED_ID].
-2. Knowledge Graph: Extract core atomic knowledge nodes (category: Entity, Concept, Claim, Risk, Evidence) and relationship edges (relation: SUPPORTS, CONTRADICTS, DEPENDS_ON, MENTIONS).
-3. Return strictly valid JSON adhering to the extraction schema.
+  const extractionPrompt = `You are SynapseVault's Knowledge Graph & PII Extraction Engine.
+Analyze the source text or image:
+1. Replace personal names with [REDACTED_PERSON], emails/phones with [REDACTED_CONTACT], card/account numbers with [REDACTED_FINANCIAL], and SSNs/IDs with [REDACTED_ID].
+2. Extract atomic knowledge nodes (Entity, Concept, Claim, Risk, Evidence) and relation edges (SUPPORTS, CONTRADICTS, DEPENDS_ON, MENTIONS).
 
 Source Content:
 """
 ${content}
 """`;
 
-  let executionSource: 'on-device' | 'cloud' = 'on-device';
+  let executionSource: 'on-device' | 'cloud' = forceCloud ? 'cloud' : 'on-device';
   let fallbackTriggered = false;
   let rawResult: { text: string; parsedJson?: any };
+  let preCloudRedactions: RedactionItem[] = [];
 
-  try {
-    rawResult = await executeOnDevice(extractionPrompt, {
-      imageFile,
-      responseSchema: EXTRACTION_RESPONSE_SCHEMA,
-    });
-  } catch (localErr) {
-    if (forceLocal) {
-      throw localErr;
+  if (forceCloud) {
+    const firewallPreCheck = applyClientPiiFirewall(content);
+    preCloudRedactions = firewallPreCheck.extraRedactions;
+    const sanitizedPrompt = extractionPrompt.replace(content, firewallPreCheck.sanitized);
+    rawResult = await executeInCloud(sanitizedPrompt, imageFile, EXTRACTION_RESPONSE_SCHEMA);
+  } else {
+    try {
+      rawResult = await executeOnDevice(extractionPrompt, {
+        imageFile,
+        responseSchema: EXTRACTION_RESPONSE_SCHEMA,
+      });
+    } catch (localErr) {
+      if (forceLocal) {
+        throw localErr;
+      }
+      console.info('[SynapseVault] Local extraction unavailable; pre-redacting via PII firewall before cloud fallback:', localErr);
+      executionSource = 'cloud';
+      fallbackTriggered = true;
+      const firewallPreCheck = applyClientPiiFirewall(content);
+      preCloudRedactions = firewallPreCheck.extraRedactions;
+      const sanitizedPrompt = extractionPrompt.replace(content, firewallPreCheck.sanitized);
+      rawResult = await executeInCloud(sanitizedPrompt, imageFile, EXTRACTION_RESPONSE_SCHEMA);
     }
-    console.info('[SynapseVault] Local extraction unavailable; falling back to cloud gemini-3.8-flash:', localErr);
-    executionSource = 'cloud';
-    fallbackTriggered = true;
-    rawResult = await executeInCloud(extractionPrompt, imageFile, EXTRACTION_RESPONSE_SCHEMA);
   }
 
   const latencyMs = Math.round(performance.now() - startTime);
@@ -500,12 +548,18 @@ ${content}
     }
   }
 
-  // Cross-check with client-side deterministic PII regex firewall if Remote Config enables it
+  // Cross-check with client-side deterministic PII regex firewall and merge pre-cloud redactions
   const firewallEnabled = await getAutoPiiFirewallEnabled();
   if (firewallEnabled) {
     const firewallCheck = applyClientPiiFirewall(parsed.redactedText || content);
     parsed.redactedText = firewallCheck.sanitized;
-    parsed.redactions = [...(parsed.redactions || []), ...firewallCheck.extraRedactions];
+    parsed.redactions = [
+      ...preCloudRedactions,
+      ...(parsed.redactions || []),
+      ...firewallCheck.extraRedactions,
+    ];
+  } else if (preCloudRedactions.length > 0) {
+    parsed.redactions = [...preCloudRedactions, ...(parsed.redactions || [])];
   }
 
   const { estimatedTokens, estimatedCost } =
@@ -532,9 +586,11 @@ ${content}
 export async function queryLocalWorkspace(
   question: string,
   localContext: string,
-  forceLocal = false
+  forceLocalOrMode: boolean | 'prefer_on_device' | 'only_on_device' | 'only_in_cloud' = false
 ): Promise<TelemetryResult> {
   const startTime = performance.now();
+  const forceLocal = forceLocalOrMode === true || forceLocalOrMode === 'only_on_device';
+  const forceCloud = forceLocalOrMode === 'only_in_cloud';
 
   const queryPrompt = `You are SynapseVault Local AI Assistant.
 Answer the user's question using ONLY the following verified local knowledge graph context.
@@ -548,18 +604,22 @@ ${localContext}
 
 USER QUESTION: ${question}`;
 
-  let executionSource: 'on-device' | 'cloud' = 'on-device';
+  let executionSource: 'on-device' | 'cloud' = forceCloud ? 'cloud' : 'on-device';
   let fallbackTriggered = false;
   let rawResult: { text: string; parsedJson?: any };
 
-  try {
-    rawResult = await executeOnDevice(queryPrompt);
-  } catch (err) {
-    if (forceLocal) throw err;
-    console.info('[SynapseVault] Local Q&A falling back to cloud:', err);
-    executionSource = 'cloud';
-    fallbackTriggered = true;
+  if (forceCloud) {
     rawResult = await executeInCloud(queryPrompt);
+  } else {
+    try {
+      rawResult = await executeOnDevice(queryPrompt);
+    } catch (err) {
+      if (forceLocal) throw err;
+      console.info('[SynapseVault] Local Q&A falling back to cloud:', err);
+      executionSource = 'cloud';
+      fallbackTriggered = true;
+      rawResult = await executeInCloud(queryPrompt);
+    }
   }
 
   const latencyMs = Math.round(performance.now() - startTime);
@@ -681,46 +741,7 @@ Return valid JSON adhering to the schema.`;
   };
 }
 
-/**
- * Constructs a standard 44-byte WAV header for 24kHz 16-bit Mono Linear PCM
- */
-export function pcmToWavBlob(pcmBytes: Uint8Array, sampleRate = 24000): Blob {
-  const header = new ArrayBuffer(44);
-  const view = new DataView(header);
-
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-  const blockAlign = (numChannels * bitsPerSample) / 8;
-  const dataSize = pcmBytes.byteLength;
-
-  function writeString(offset: number, string: string) {
-    for (let i = 0; i < string.length; i++) {
-      view.setUint8(offset + i, string.charCodeAt(i));
-    }
-  }
-
-  // RIFF chunk
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeString(8, 'WAVE');
-
-  // fmt subchunk
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM = 1
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-
-  // data subchunk
-  writeString(36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  return new Blob([header, pcmBytes], { type: 'audio/wav' });
-}
+// pcmToWavBlob imported from ./piiFirewall and re-exported above.
 
 /**
  * Fallback Web Speech API audio synthesis for offline / quota situations

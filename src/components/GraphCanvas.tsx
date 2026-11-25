@@ -15,16 +15,23 @@ import {
   Send,
   X,
   Cpu,
+  Cloud,
   Binary,
 } from 'lucide-react';
 import { ErrorBoundary } from './ErrorBoundary';
+
+export interface LocalQAResponse {
+  answer: string;
+  executionSource: 'on-device' | 'cloud';
+  latencyMs: number;
+}
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   selectedNode: GraphNode | null;
   onSelectNode: (node: GraphNode | null) => void;
-  onRunLocalQA: (question: string) => Promise<string>;
+  onRunLocalQA: (question: string) => Promise<LocalQAResponse>;
   localExtractionLatencyMs: number;
 }
 
@@ -49,7 +56,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [qaMode, setQaMode] = useState(false);
-  const [qaAnswer, setQaAnswer] = useState<{ q: string; a: string } | null>(null);
+  const [qaAnswer, setQaAnswer] = useState<{
+    q: string;
+    a: string;
+    executionSource?: 'on-device' | 'cloud';
+    latencyMs?: number;
+  } | null>(null);
   const [qaLoading, setQaLoading] = useState(false);
 
   // Position nodes with an orbital spring distribution
@@ -171,8 +183,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     if (qaMode) {
       setQaLoading(true);
       try {
-        const answer = await onRunLocalQA(searchQuery);
-        setQaAnswer({ q: searchQuery, a: answer });
+        const res = await onRunLocalQA(searchQuery);
+        setQaAnswer({
+          q: searchQuery,
+          a: res.answer,
+          executionSource: res.executionSource,
+          latencyMs: res.latencyMs,
+        });
       } catch (err: any) {
         setQaAnswer({ q: searchQuery, a: `Local Q&A error: ${err.message}` });
       } finally {
@@ -258,11 +275,34 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
         {/* Instant Q&A Response Popover */}
         {qaAnswer && (
-          <div className="pointer-events-auto mt-2 w-full max-w-xl bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 rounded-2xl p-3.5 shadow-2xl text-xs space-y-1.5 animate-fadeIn">
-            <div className="flex items-center justify-between text-[10px] text-emerald-400 font-bold uppercase">
+          <div
+            className={`pointer-events-auto mt-2 w-full max-w-xl bg-slate-900/95 backdrop-blur-md border rounded-2xl p-3.5 shadow-2xl text-xs space-y-1.5 animate-fadeIn ${
+              qaAnswer.executionSource === 'cloud'
+                ? 'border-indigo-500/40'
+                : 'border-emerald-500/40'
+            }`}
+          >
+            <div
+              className={`flex items-center justify-between text-[10px] font-bold uppercase ${
+                qaAnswer.executionSource === 'cloud' ? 'text-indigo-400' : 'text-emerald-400'
+              }`}
+            >
               <span className="flex items-center gap-1">
-                <Cpu className="w-3 h-3" />
-                <span>On-Device Gemini Nano Answer (Zero Cloud Egress)</span>
+                {qaAnswer.executionSource === 'cloud' ? (
+                  <>
+                    <Cloud className="w-3 h-3" />
+                    <span>
+                      Cloud Fallback Answer (Sanitized Context{qaAnswer.latencyMs ? ` · ${qaAnswer.latencyMs}ms` : ''})
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Cpu className="w-3 h-3" />
+                    <span>
+                      On-Device Gemini Nano Answer (Zero Cloud Egress{qaAnswer.latencyMs ? ` · ${qaAnswer.latencyMs}ms` : ''})
+                    </span>
+                  </>
+                )}
               </span>
               <button
                 type="button"
@@ -273,7 +313,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               </button>
             </div>
             <div className="font-semibold text-slate-200">Q: {qaAnswer.q}</div>
-            <div className="font-mono text-emerald-200 text-[11px] leading-relaxed">
+            <div
+              className={`font-mono text-[11px] leading-relaxed ${
+                qaAnswer.executionSource === 'cloud' ? 'text-indigo-200' : 'text-emerald-200'
+              }`}
+            >
               {qaAnswer.a}
             </div>
           </div>

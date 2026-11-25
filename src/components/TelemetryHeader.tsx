@@ -60,10 +60,10 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
 }) => {
   return (
     <header className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 text-slate-100 shadow-lg select-none">
-      {/* 3-Section Persistent HUD Grid */}
-      <div className="px-5 py-2.5 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-        {/* Left Section: Brand Identity + Network Status + Firestore Sync State (4 cols) */}
-        <div className="md:col-span-4 flex items-center space-x-3">
+      {/* 3-Section Persistent HUD Flex Layout (prevents column overlap at 1280px/1440px) */}
+      <div className="px-4 py-2 flex flex-wrap xl:flex-nowrap items-center justify-between gap-x-4 gap-y-2">
+        {/* Left Section: Brand Identity + Network Status + Firestore Sync State */}
+        <div className="flex items-center space-x-3 shrink-0">
           <div className="flex items-center space-x-2.5">
             <div className="bg-gradient-to-tr from-cyan-500 via-indigo-500 to-purple-600 p-1.5 rounded-lg text-white shadow-sm shadow-indigo-500/20">
               <Zap className="w-4 h-4" />
@@ -108,8 +108,8 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
           </div>
         </div>
 
-        {/* Center Section: On-Device Model Indicator + Interactive Routing Segmented Control (4 cols) */}
-        <div className="md:col-span-4 flex flex-col items-center justify-center space-y-1">
+        {/* Center Section: On-Device Model Indicator + Interactive Routing Segmented Control */}
+        <div className="flex flex-col items-center justify-center space-y-1 shrink-0">
           {/* On-Device Model Live Status */}
           <div className="flex items-center space-x-2 text-[11px]">
             <span
@@ -183,10 +183,10 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
           </div>
         </div>
 
-        {/* Right Section: Live Metrics Strip + Local Privacy & Cost Savings + Judge Auth (4 cols) */}
-        <div className="md:col-span-4 flex items-center justify-end space-x-3 text-xs">
+        {/* Right Section: Live Metrics Strip + Local Privacy & Cost Savings + Benchmark + Judge Auth */}
+        <div className="flex items-center justify-end space-x-2.5 text-xs shrink-0">
           {/* Live Metrics Strip */}
-          <div className="hidden lg:flex items-center space-x-2 bg-slate-900/90 border border-slate-800 px-3 py-1 rounded-lg">
+          <div className="hidden 2xl:flex items-center space-x-2 bg-slate-900/90 border border-slate-800 px-3 py-1 rounded-lg">
             <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
             <div className="text-[11px] flex items-center space-x-1.5">
               <span
