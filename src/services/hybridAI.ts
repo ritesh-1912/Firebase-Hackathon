@@ -550,17 +550,27 @@ ${content}
 
   // Cross-check with client-side deterministic PII regex firewall and merge pre-cloud redactions
   const firewallEnabled = await getAutoPiiFirewallEnabled();
+  const combinedRawRedactions: RedactionItem[] = [
+    ...preCloudRedactions,
+    ...(parsed.redactions || []),
+  ];
   if (firewallEnabled) {
     const firewallCheck = applyClientPiiFirewall(parsed.redactedText || content);
     parsed.redactedText = firewallCheck.sanitized;
-    parsed.redactions = [
-      ...preCloudRedactions,
-      ...(parsed.redactions || []),
-      ...firewallCheck.extraRedactions,
-    ];
-  } else if (preCloudRedactions.length > 0) {
-    parsed.redactions = [...preCloudRedactions, ...(parsed.redactions || [])];
+    combinedRawRedactions.push(...firewallCheck.extraRedactions);
   }
+
+  // Deduplicate and discard placeholder echoes (e.g. when model copies [REDACTED_*] as originalSnippet)
+  const seenRedactions = new Set<string>();
+  parsed.redactions = combinedRawRedactions.filter((r) => {
+    if (!r?.originalSnippet || r.originalSnippet.startsWith('[REDACTED_') || r.originalSnippet === r.replacement) {
+      return false;
+    }
+    const key = `${r.type}::${r.originalSnippet}`;
+    if (seenRedactions.has(key)) return false;
+    seenRedactions.add(key);
+    return true;
+  });
 
   const { estimatedTokens, estimatedCost } =
     executionSource === 'on-device'

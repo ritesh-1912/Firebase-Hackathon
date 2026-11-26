@@ -52,7 +52,7 @@ flowchart TD
     end
 
     subgraph Cloud["3. Cloud Backend & Reasoning Tier (Governed by App Check & Remote Config)"]
-        AppCheckGuard["Firebase App Check (ReCaptchaV3Provider / Debug Token)"] --> AIBackend["GoogleAIBackend (Firebase AI Logic)"]
+        AppCheckGuard["Firebase App Check (ReCaptchaEnterpriseProvider / Debug Token)"] --> AIBackend["GoogleAIBackend (Firebase AI Logic)"]
         RemoteConfig["Remote Config (default_inference_mode, auto_pii_firewall)"] -.-> Router
         
         Firewall -.->|"Sanitized Graph Topology Only (Zero Raw PII)"| CloudFlash["Gemini 3.8 Flash (Cross-Document Contradiction & Synthesis)"]
@@ -66,57 +66,44 @@ flowchart TD
 
 ---
 
-## 3. Flagship 3-Pane Studio Interface
+## 3. Studio Interface (`#09090B` Calm Studio UX)
 
-SynapseVault provides a purpose-built dark-mode studio interface designed for evaluator clarity:
+SynapseVault uses a progressive-disclosure dark studio layout inspired by Linear, Obsidian Canvas, and NotebookLM:
 
-### 1. Persistent Hybrid Telemetry & Control HUD (`src/components/TelemetryHeader.tsx`)
-- **Left**: SynapseVault brand identity + real-time Network Status pill (`Online` vs `Offline`) + Firestore Multi-Tab Persistence pill (`Synced` vs `Offline Cache Active`).
-- **Center**: Live Gemini Nano 4 model readiness state (`Ready`, `Downloading X%`, or `Cloud Fallback Active`) + Interactive routing segmented control (`Auto Hybrid`, `Strict Local`, `Cloud Compare`).
-- **Right**: Real-time telemetry strip displaying execution source (`on-device` vs `cloud`), latency (`ms`), and cumulative Local Privacy & Cost Savings counter (`total local runs` + estimated `USD saved`).
-- **Interactive Benchmark Button**: Direct access to the Side-by-Side Hybrid Benchmark modal.
+### 1. Slim 52px Top Bar & Telemetry Popover (`src/components/TelemetryHeader.tsx`)
+- **Left**: Sidebar collapse/expand toggle, `SynapseVault` wordmark, and compact `Online` / `Offline Local` status dot.
+- **Center**: Segmented workspace switcher: **`Graph`** | **`Privacy Firewall`** | **`Cloud Brief`**.
+- **Right**:
+  - **Hybrid Status Pill**: Displays live status (`On-Device · 142ms`, `Cloud Fallback · 549ms`, or `Nano Downloadable`). Clicking opens the **Telemetry Popover** containing the Routing Mode selector (`Auto Hybrid`, `Strict Local`, `Cloud Compare`), Gemini Nano readiness/flags info, Firestore cache sync state, and cumulative local runs/tokens/USD saved.
+  - **Benchmark** button (opens the side-by-side comparison modal).
+  - **Auth** pill (Anonymous `Judge` auto-auth with optional Google `Sign in` / `Sign Out`).
 
-### 2. Left Pane — Source Vault & 1-Click Judge Demo (`src/components/SourceVault.tsx`)
-- Universal drag-and-drop ingestion zone supporting **PDF**, **TXT/MD**, and **JPEG/PNG/WebP** files.
-- **"Load Sample Investigation"**: 1-click button populating the **Project Helios Battery Thermal Incident** multi-document case study:
-  1. *Field Engineering Log #4B*: Contains lead engineer PII (Marcus Vance, SSN, personal phone, JPMorgan Chase account) and telemetry recording an 88°C spike and emergency vent rupture.
-  2. *Vendor Cell Spec Sheet*: Lithium-Titanate datasheet rating continuous operation strictly at 65°C, warning that >75°C invalidates warranty and causes separator breakdown.
-  3. *Quality Audit Memo*: Firmware 2.4.0 certification claiming zero thermal limit excursions above 65°C occurred (a direct contradiction with Document 1 & 2).
-- Status badges per source document: `Parsed`, `Redacted Locally`, and `Graph Indexed`.
+### 2. Guided Onboarding & Collapsible Source Vault (`src/components/SourceVault.tsx`)
+- **Empty State Onboarding Canvas**: On initial load, presents a centered canvas with two clear actions:
+  1. **Load Sample Investigation**: 1-click launch of the **Project Helios Battery Thermal Incident** multi-document case study (Field Engineering Log #4B with PII, Vendor Cell Spec Sheet, and Quality Audit Memo with a deliberate contradiction).
+  2. **Drop Local Sources**: Drag-and-drop card for PDF, TXT/MD, and JPEG/PNG files parsed client-side via `pdfjs-dist`.
+- **Collapsible `260px` Sources Sidebar**: Lists staged sources with compact local shield / processing status icons, `+ Add Sources` dropzone button, `Process Vault` CTA, and `Saved Vaults` drawer access.
 
-### 3. Center Pane — Interactive Knowledge Graph Canvas (`src/components/GraphCanvas.tsx`)
-- Interactive graph canvas built on `@xyflow/react` with custom color-coded nodes:
-  - 🟢 **Entity**: Named hardware, components, and organizations.
-  - 🟣 **Concept**: Protocols, firmware architectures, and physical processes.
-  - 🔵 **Claim**: Engineering assertions and field observations.
-  - 🔴 **Risk**: Thermal runway, safety vent ruptures, and warranty invalidations.
-  - 🟡 **Evidence**: Sensor logs, pressure transducers, and audit certifications.
-- **Animated `CONTRADICTS` Edges**: Highlighted with high-contrast amber/red animated dashed lines.
-- **Node Detail Inspection**: Click any node to inspect connected claims, extraction confidence, and on-device extraction latency.
-- **Floating Offline Search & Q&A**: Filter nodes by keyword and execute instant single-turn offline Q&A using Gemini Nano over local context without network latency.
+### 3. Canvas-First Graph Workspace & Floating Command Dock (`src/components/GraphCanvas.tsx`)
+- Full-bleed `#27272A` dot-grid `@xyflow/react` canvas with clean left-accent node cards (`Entity`, `Concept`, `Claim`, `Risk`, `Evidence`), curved edges, high-contrast rose `CONTRADICTS` relations, and toggleable minimap (hidden by default).
+- **Floating Bottom Command Dock**: Centered dock featuring an inline **`Ask Local Vault...`** / **`Filter`** command bar (with floating response card above the dock showing accurate `On-Device` vs `Cloud Fallback` attribution) alongside `Zoom In`, `Zoom Out`, `Fit View`, and `Minimap` controls.
+- **360px Slide-Over Node Inspector Drawer**: Clicking any graph node slides open a right-side drawer displaying the summary, confidence, extraction latency, linked source file, and connected relationships.
 
-### 4. Right Pane — Hybrid Intelligence Inspector (`src/components/IntelligencePanel.tsx`)
-- **Tab 1: Privacy Firewall**: Side-by-side diff comparison between raw local data and sanitized text with highlighted PII badges (`[REDACTED_PERSON]`, `[REDACTED_CONTACT]`, `[REDACTED_FINANCIAL]`, `[REDACTED_ID]`) and PII registry.
-- **Tab 2: Cloud Synthesis**: Tier 2 Cloud Escalation button sending **only** sanitized text and graph topology to `gemini-3.8-flash`. Includes collapsible wire JSON inspector, Executive Summary, Detected Contradictions (prominently flagged in amber/red with citations), Knowledge Gaps, and Action Plan.
-- **Tab 3: Audio Briefing**: Multimodal audio player powered by `gemini-3.1-flash-tts-preview` (with browser Web Speech API offline fallback), animated waveform visualizer, playback controls, and `.wav` download.
+### 4. Focused Full-View Tabs (`src/components/IntelligencePanel.tsx`)
+- **`Privacy Firewall`**: Summary metrics strip (`Total Blocked`, `Persons`, `Contacts`, `Financial`, `Gov / Secret IDs`), side-by-side split diff (`Original Local Input` vs. `Sanitized Output`) with color-coded chips, and the `Blocked PII Items` registry.
+- **`Cloud Brief`**: Document-style executive report with **`Run Cloud Synthesis`** (`gemini-3.8-flash` with sanitized payload inspector), integrated **`Audio Briefing`** bar (`gemini-3.1-flash-tts-preview` / Web Speech fallback + WAV download), Executive Summary, `Detected Contradictions`, `Knowledge Gaps`, and `Action Plan`.
 
-### 5. Side-by-Side Hybrid Benchmark Mode (`src/components/BenchmarkModal.tsx`)
-- Runs identical prompt inputs simultaneously through **On-Device Gemini Nano** and **Cloud Gemini 3.8 Flash**.
-- Displays a factual side-by-side comparison table:
-  - **Execution Latency**: On-device (~120–350ms) vs Cloud API (~1,200–2,400ms).
-  - **Network Egress**: 0 Bytes (Air-gapped) vs Wire payload bytes.
-  - **Privacy Exposure**: 100% Zero Leakage vs Cloud Wire Transmission.
-  - **Inference Cost**: $0.000000 (Free) vs Cloud API token pricing.
-  - **Offline Capability**: 100% Functional in Airplane Mode vs Requires Internet Connection.
+### 5. Side-by-Side Hybrid Benchmark Modal (`src/components/BenchmarkModal.tsx`)
+- Runs identical inputs through **On-Device Gemini Nano** and **Cloud Gemini 3.8 Flash**.
+- Displays visual delta callouts (`Latency Delta`, `0 B Network Egress`, `$0.00 Local Cost`) above a clean comparison table.
 
 ---
 
 ## 4. Security & Compliance Foundation
 
 - **Firebase App Check**:
-  - `initializeAppCheck` is configured using `ReCaptchaV3Provider`.
-  - Configured strictly prior to any `getAI()` call in [`src/lib/firebase.ts`](src/lib/firebase.ts).
-  - Includes `self.FIREBASE_APPCHECK_DEBUG_TOKEN` support for local judging, CI, and emulators.
+  - `initializeAppCheck` is configured using `ReCaptchaEnterpriseProvider` with `VITE_FIREBASE_APPCHECK_DEBUG_TOKEN` support so hackathon evaluators can test without reCAPTCHA friction.
+  - Configured strictly prior to any `getAI()` call in [`src/lib/firebase.ts`](src/lib/firebase.ts) and wrapped in `try/catch` diagnostics.
 - **Cloud Firestore Security Rules (`firestore.rules`)**:
   - Strict user-isolation rule enforced across all paths:
     ```javascript
@@ -193,11 +180,10 @@ To test browser-native on-device inference using Gemini Nano in Google Chrome:
    - Open `chrome://components`
    - Locate **Optimization Guide On Device Model**
    - Click **Check for update** until status indicates *Up-to-date*.
-5. Open SynapseVault (`http://localhost:5173`). The Persistent Telemetry HUD will indicate:
-   `On-Device Model Status: AVAILABLE (GEMINI NANO)`.
+5. Open SynapseVault (`http://localhost:5173`). The Hybrid Status Pill in the top bar will indicate **`On-Device Ready`** (and clicking it opens the Telemetry Popover showing `Gemini Nano: Ready`).
 
 > [!NOTE]
-> **Graceful Degradation:** If tested in Safari, Firefox, or Chrome without flags, SynapseVault gracefully degrades to Cloud `gemini-3.8-flash` via Firebase AI Logic and displays a non-intrusive status notice.
+> **Graceful Degradation:** If tested in Safari, Firefox, or Chrome without flags, SynapseVault gracefully degrades to Cloud `gemini-3.8-flash` (with transient fallback) via Firebase AI Logic and surfaces the browser notice cleanly inside the Hybrid Status Popover.
 
 ---
 
@@ -229,10 +215,10 @@ For evaluators running locally:
 
 ## 9. Tech Stack
 
-- **Client Runtime**: React 18, TypeScript 5, Vite 6, Tailwind CSS 3
+- **Client Runtime**: React 19, TypeScript 5, Vite 6, Tailwind CSS 4
 - **Local On-Device AI**: Chrome Prompt API (`LanguageModel.availability()`, Gemini Nano)
 - **Cloud Multimodal AI**: Firebase AI Logic (`getAI()`, `getGenerativeModel()`, `GoogleAIBackend`, `gemini-3.8-flash`, `gemini-3.1-flash-tts-preview`)
-- **Security & Infrastructure**: Firebase App Check (reCAPTCHA v3), Firebase Auth (Anonymous & Google), Cloud Firestore (Offline Multi-Tab Persistence), Firebase Remote Config
+- **Security & Infrastructure**: Firebase App Check (`ReCaptchaEnterpriseProvider` + Debug Token), Firebase Auth (Anonymous & Google), Cloud Firestore (Offline Multi-Tab Persistence), Firebase Remote Config
 - **Visuals & Graphs**: `@xyflow/react` (interactive canvas, minimap, auto-layout, animated conflict edges)
 - **Document & Multimodal Parser**: `pdfjs-dist` (browser-native worker)
 - **PWA / Offline**: `vite-plugin-pwa` (Workbox precaching and service worker)

@@ -509,12 +509,27 @@ export default function App() {
         firebaseDiagnostic={firebaseInitDiagnostic}
         user={user}
         authLoading={authLoading}
-        onGoogleSignIn={() => signInWithGoogle()}
-        onSignOut={() => signOutUser()}
+        onGoogleSignIn={async () => {
+          try {
+            await signInWithGoogle();
+          } catch (err) {
+            console.warn('[Auth] Google Sign-In notice:', err);
+            setPipelineToast(
+              `Sign-in cancelled or failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }}
+        onSignOut={async () => {
+          try {
+            await signOutUser();
+          } catch (err) {
+            console.warn('[Auth] Sign-out notice:', err);
+          }
+        }}
       />
 
       {/* 2. Studio Workspace Body */}
-      <main className="flex-1 flex overflow-hidden relative">
+      <main className="flex-1 min-h-0 flex overflow-hidden relative">
         {/* Collapsible Slim Left Source Vault (260px) */}
         {sidebarOpen && (
           <div className="fixed inset-y-[52px] left-0 z-40 lg:static lg:inset-auto h-[calc(100vh-52px)] lg:h-full">
@@ -545,7 +560,7 @@ export default function App() {
         )}
 
         {/* Main Studio Area: Guided Empty State OR Selected Studio View */}
-        <section className="flex-1 h-full flex flex-col relative overflow-hidden bg-[#09090B]">
+        <section className="flex-1 min-h-0 min-w-0 h-full flex flex-col relative overflow-hidden bg-[#09090B]">
           {activeView === 'graph' && documents.length === 0 ? (
             <EmptyOnboardingCanvas
               onLoadSampleInvestigation={handleLoadSampleInvestigation}

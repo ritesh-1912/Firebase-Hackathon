@@ -257,9 +257,9 @@ const GraphCanvasInner: React.FC<GraphCanvasProps> = ({
   }, [selectedNode, edges, nodes]);
 
   return (
-    <div className="h-full w-full flex bg-[#09090B] relative overflow-hidden">
+    <div className="h-full min-h-0 w-full flex bg-[#09090B] relative overflow-hidden">
       {/* Main Canvas Area */}
-      <div className="flex-1 h-full relative">
+      <div className="flex-1 min-h-0 min-w-0 h-full relative">
         {nodes.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center p-8 text-center">
             <div
