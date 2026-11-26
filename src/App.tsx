@@ -22,9 +22,14 @@ import {
   type CloudBriefing,
 } from './services/hybridAI';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { TelemetryHeader, type InferenceModeSetting } from './components/TelemetryHeader';
+import {
+  TelemetryHeader,
+  type InferenceModeSetting,
+  type StudioView,
+} from './components/TelemetryHeader';
 import {
   SourceVault,
+  EmptyOnboardingCanvas,
   type SourceDocument,
   SAMPLE_HELIOS_CASE_STUDY,
 } from './components/SourceVault';
@@ -32,14 +37,8 @@ import { GraphCanvas, type LocalQAResponse } from './components/GraphCanvas';
 import { IntelligencePanel } from './components/IntelligencePanel';
 import { WorkspacesHistory } from './components/WorkspacesHistory';
 import { BenchmarkModal } from './components/BenchmarkModal';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import {
-  createWorkspace,
-  saveWorkspace,
-  subscribeToWorkspaces,
-  type WorkspaceRecord,
-} from './services/workspaceStore';
-import { FolderGit2, X, AlertTriangle } from 'lucide-react';
+import { createWorkspace, saveWorkspace, subscribeToWorkspaces, type WorkspaceRecord } from './services/workspaceStore';
+import { FolderArchive, X, AlertTriangle } from 'lucide-react';
 
 export default function App() {
   // Auth state
@@ -55,7 +54,7 @@ export default function App() {
   const [promptApiStatus, setPromptApiStatus] = useState<PromptAPIAvailabilityStatus>('unavailable');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
 
-  // Inference Mode Configuration (Remote Config vs Evaluator Manual Override)
+  // Inference Mode Configuration
   const [remoteConfigMode, setRemoteConfigMode] = useState<InferenceModeSetting>('prefer_on_device');
   const [activeMode, setActiveMode] = useState<InferenceModeSetting>('prefer_on_device');
   const [manualOverride, setManualOverride] = useState<boolean>(false);
@@ -68,40 +67,37 @@ export default function App() {
     totalCostSavedUsd: 0,
   });
 
-  // Firestore Sync State
-  const [firestoreSyncState, setFirestoreSyncState] = useState<'Synced' | 'Offline Cache Active'>('Synced');
-
-  // Workspaces History State
+  // Firestore Sync & Workspaces State
+  const [firestoreSyncState, setFirestoreSyncState] = useState<'Synced' | 'Offline Cache Active'>(
+    'Synced'
+  );
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
-  const [diagnosticDismissed, setDiagnosticDismissed] = useState<boolean>(false);
-  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
-  // 3-Pane Studio State
-  const [documents, setDocuments] = useState<SourceDocument[]>(SAMPLE_HELIOS_CASE_STUDY);
-  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(
-    SAMPLE_HELIOS_CASE_STUDY[0].id
-  );
+  // Studio Navigation & Collapsible Sidebar
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const [activeView, setActiveView] = useState<StudioView>('graph');
+
+  // Vault & Extraction State (starts empty for high-impact onboarding canvas)
+  const [documents, setDocuments] = useState<SourceDocument[]>([]);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [processingVault, setProcessingVault] = useState<boolean>(false);
 
-  // Knowledge Graph Canvas State
+  // Graph & Intelligence State
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [localExtractionLatencyMs, setLocalExtractionLatencyMs] = useState<number>(0);
-
-  // Redaction & Intelligence Panel State
   const [redactedText, setRedactedText] = useState<string>('');
   const [redactions, setRedactions] = useState<RedactionItem[]>([]);
   const [cloudBriefing, setCloudBriefing] = useState<CloudBriefing | null>(null);
   const [isSynthesizing, setIsSynthesizing] = useState<boolean>(false);
   const [audioUrl, setAudioUrl] = useState<string | undefined>(undefined);
+  const [audioUsedFallback, setAudioUsedFallback] = useState<boolean>(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState<boolean>(false);
-
-  // Mobile / Small Screen Studio Tab Switcher
-  const [mobileTab, setMobileTab] = useState<'vault' | 'graph' | 'intelligence'>('graph');
+  const [pipelineToast, setPipelineToast] = useState<string | null>(null);
 
   // 1. Auto-authenticate judges via Anonymous Auth on first load
   useEffect(() => {
@@ -138,7 +134,6 @@ export default function App() {
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -190,7 +185,6 @@ export default function App() {
     return () => unsubscribe();
   }, [user, activeWorkspaceId]);
 
-  // Mode override handlers
   const handleSetMode = (mode: InferenceModeSetting, isManual: boolean) => {
     setActiveMode(mode);
     setManualOverride(isManual);
@@ -201,7 +195,7 @@ export default function App() {
     setActiveMode(remoteConfigMode);
   };
 
-  // Helper to persist current session to Firestore
+  // Persist current session to Firestore
   const persistSession = useCallback(
     async (
       currentDocs: SourceDocument[],
@@ -262,11 +256,11 @@ export default function App() {
     [user, activeWorkspaceId]
   );
 
-  // Process all documents in the vault using active inference routing
-  const handleProcessVault = async () => {
-    if (documents.length === 0 || processingVault) return;
+  // Core vault processor (accepts explicit list so 1-click sample demo can trigger immediately)
+  const processDocuments = async (targetDocs: SourceDocument[]) => {
+    if (targetDocs.length === 0 || processingVault) return;
     setProcessingVault(true);
-    setPipelineError(null);
+    setPipelineToast(null);
 
     const aggregatedNodes: GraphNode[] = [];
     const aggregatedEdges: GraphEdge[] = [];
@@ -276,20 +270,15 @@ export default function App() {
     let lastTel: TelemetryResult | null = null;
 
     try {
-      const updatedDocs = [...documents];
+      const updatedDocs = [...targetDocs];
 
       for (let i = 0; i < updatedDocs.length; i++) {
         const doc = updatedDocs[i];
-        const res = await redactAndExtractLocal(
-          doc.content,
-          doc.imageFile,
-          activeMode
-        );
+        const res = await redactAndExtractLocal(doc.content, doc.imageFile, activeMode);
 
         lastTel = res;
         totalLatency += res.latencyMs;
 
-        // Cumulative savings update
         if (res.executionSource === 'on-device') {
           setCumulativeSavings((prev) => ({
             totalLocalRuns: prev.totalLocalRuns + 1,
@@ -298,7 +287,6 @@ export default function App() {
           }));
         }
 
-        // Aggregate nodes & edges (namespace IDs per document to avoid cross-doc collisions)
         const docPrefix = `d${i}_`;
         res.extraction.nodes.forEach((n) => {
           const namespacedId = `${docPrefix}${n.id}`;
@@ -322,7 +310,6 @@ export default function App() {
         aggregatedRedactions.push(...res.extraction.redactions);
         combinedRedactedText += `\n--- [DOCUMENT: ${doc.name}] ---\n` + res.extraction.redactedText;
 
-        // Mark doc as processed
         updatedDocs[i] = {
           ...doc,
           status: {
@@ -344,7 +331,6 @@ export default function App() {
         setLastTelemetry(lastTel);
       }
 
-      // Persist to Firestore (offline-capable)
       await persistSession(
         updatedDocs,
         aggregatedNodes,
@@ -357,8 +343,7 @@ export default function App() {
       );
     } catch (err) {
       console.error('[App] Process Vault error:', err);
-      // Always apply deterministic local PII firewall even if AI graph extraction hits quota/outage
-      const fallbackSanitized = documents.map((d) => {
+      const fallbackSanitized = targetDocs.map((d) => {
         const fw = applyClientPiiFirewall(d.content);
         return {
           doc: { ...d, status: { ...d.status, redactedLocally: true } },
@@ -369,15 +354,15 @@ export default function App() {
       setDocuments(fallbackSanitized.map((x) => x.doc));
       setRedactedText(fallbackSanitized.map((x) => x.text).join(''));
       setRedactions(fallbackSanitized.flatMap((x) => x.redactions));
-      setPipelineError(
-        `AI graph extraction unavailable (${err instanceof Error ? err.message : String(err)}). Deterministic local PII Firewall still sanitized all documents.`
+      setPipelineToast(
+        `AI extraction unavailable (${err instanceof Error ? err.message : String(err)}). Local PII Firewall still sanitized all sources.`
       );
     } finally {
       setProcessingVault(false);
     }
   };
 
-  // Run single-turn offline Q&A in the center pane (pre-sanitizing fallback context)
+  // Run single-turn Q&A in the center canvas dock
   const handleRunLocalQA = async (question: string): Promise<LocalQAResponse> => {
     const activeDoc = documents.find((d) => d.id === activeDocumentId);
     const rawContext = redactedText || activeDoc?.content || 'No context indexed.';
@@ -386,7 +371,6 @@ export default function App() {
       : applyClientPiiFirewall(rawContext).sanitized;
 
     const res = await queryLocalWorkspace(question, safeContext, activeMode);
-
     setLastTelemetry(res);
 
     if (res.executionSource === 'on-device') {
@@ -408,7 +392,7 @@ export default function App() {
   const handleTriggerCloudSynthesis = async () => {
     if (!redactedText || isSynthesizing) return;
     setIsSynthesizing(true);
-    setPipelineError(null);
+    setPipelineToast(null);
 
     try {
       const res = await synthesizeCloudBriefing({
@@ -432,7 +416,9 @@ export default function App() {
       );
     } catch (err) {
       console.error('[App] Cloud Synthesis error:', err);
-      setPipelineError(`Cloud synthesis failed: ${err instanceof Error ? err.message : String(err)}`);
+      setPipelineToast(
+        `Cloud synthesis failed: ${err instanceof Error ? err.message : String(err)}`
+      );
     } finally {
       setIsSynthesizing(false);
     }
@@ -446,9 +432,10 @@ export default function App() {
       'SynapseVault Executive Intelligence Briefing ready.';
 
     setIsGeneratingAudio(true);
-    setPipelineError(null);
+    setPipelineToast(null);
     try {
       const res = await generateAudioBriefing(textToSpeak);
+      setAudioUsedFallback(res.usedFallback);
       if (res.audioUrl) {
         setAudioUrl(res.audioUrl);
       }
@@ -465,17 +452,23 @@ export default function App() {
       );
     } catch (err) {
       console.error('[App] Audio Generation error:', err);
-      setPipelineError(`Audio briefing failed: ${err instanceof Error ? err.message : String(err)}`);
+      setPipelineToast(
+        `Audio briefing failed: ${err instanceof Error ? err.message : String(err)}`
+      );
     } finally {
       setIsGeneratingAudio(false);
     }
   };
 
-  // Load sample Helios investigation
+  // 1-Click Judge Demo: populates Project Helios docs and runs extraction immediately
   const handleLoadSampleInvestigation = () => {
-    setPipelineError(null);
-    setDocuments(SAMPLE_HELIOS_CASE_STUDY);
-    setActiveDocumentId(SAMPLE_HELIOS_CASE_STUDY[0].id);
+    const freshDocs = SAMPLE_HELIOS_CASE_STUDY.map((d) => ({
+      ...d,
+      status: { parsed: true, redactedLocally: false, graphIndexed: false },
+    }));
+    setPipelineToast(null);
+    setDocuments(freshDocs);
+    setActiveDocumentId(freshDocs[0].id);
     setNodes([]);
     setEdges([]);
     setSelectedNode(null);
@@ -483,15 +476,24 @@ export default function App() {
     setRedactions([]);
     setCloudBriefing(null);
     setAudioUrl(undefined);
+    setAudioUsedFallback(false);
+    setActiveView('graph');
+    setSidebarOpen(true);
+    void processDocuments(freshDocs);
   };
 
-  // Active document resolution
   const activeDocument = documents.find((d) => d.id === activeDocumentId) || documents[0];
 
   return (
-    <div className="h-screen w-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none overflow-hidden">
-      {/* 1. Persistent Hybrid Telemetry & Control HUD */}
+    <div className="h-screen w-screen bg-[#09090B] text-[#F4F4F5] flex flex-col font-sans overflow-hidden">
+      {/* 1. Slim 52px Studio Top Bar with Telemetry Popover */}
       <TelemetryHeader
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        activeView={activeView}
+        onSelectView={setActiveView}
+        redactionsCount={redactions.length}
+        hasCloudBriefing={Boolean(cloudBriefing)}
         promptApiStatus={promptApiStatus}
         downloadProgress={downloadProgress}
         activeMode={activeMode}
@@ -504,173 +506,126 @@ export default function App() {
         cumulativeSavings={cumulativeSavings}
         isOnline={isOnline}
         firestoreSyncState={firestoreSyncState}
+        firebaseDiagnostic={firebaseInitDiagnostic}
         user={user}
         authLoading={authLoading}
         onGoogleSignIn={() => signInWithGoogle()}
         onSignOut={() => signOutUser()}
       />
 
-      {/* Diagnostic Banner when Firebase env vars or App Check initialization report a notice */}
-      {firebaseInitDiagnostic && !diagnosticDismissed && (
-        <div className="bg-amber-950/80 border-b border-amber-500/40 px-5 py-2 flex items-center justify-between text-xs text-amber-200 shrink-0">
-          <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>{firebaseInitDiagnostic}</span>
-          </div>
-          <button
-            onClick={() => setDiagnosticDismissed(true)}
-            className="text-amber-400 hover:text-amber-200 p-0.5 cursor-pointer"
-            title="Dismiss diagnostic notice"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Pipeline Error Banner when an AI call fails */}
-      {pipelineError && (
-        <div className="bg-rose-950/80 border-b border-rose-500/40 px-5 py-2 flex items-center justify-between text-xs text-rose-200 shrink-0">
-          <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{pipelineError}</span>
-          </div>
-          <button
-            onClick={() => setPipelineError(null)}
-            className="text-rose-400 hover:text-rose-200 p-0.5 cursor-pointer"
-            title="Dismiss error notice"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Mobile / Small Screen Navigation Tab Bar */}
-      <div className="lg:hidden flex items-center justify-around bg-slate-900 border-b border-slate-800 text-xs py-2 px-4 shrink-0">
-        <button
-          onClick={() => setMobileTab('vault')}
-          className={`px-3 py-1 rounded-md font-semibold ${
-            mobileTab === 'vault' ? 'bg-cyan-600 text-white' : 'text-slate-400'
-          }`}
-        >
-          Source Vault ({documents.length})
-        </button>
-        <button
-          onClick={() => setMobileTab('graph')}
-          className={`px-3 py-1 rounded-md font-semibold ${
-            mobileTab === 'graph' ? 'bg-indigo-600 text-white' : 'text-slate-400'
-          }`}
-        >
-          Knowledge Graph ({nodes.length})
-        </button>
-        <button
-          onClick={() => setMobileTab('intelligence')}
-          className={`px-3 py-1 rounded-md font-semibold ${
-            mobileTab === 'intelligence' ? 'bg-purple-600 text-white' : 'text-slate-400'
-          }`}
-        >
-          Intelligence Panel
-        </button>
-      </div>
-
-      {/* 2. Flagship 3-Pane Studio Workspace */}
+      {/* 2. Studio Workspace Body */}
       <main className="flex-1 flex overflow-hidden relative">
-        {/* Pane 1 (Left): Source Vault & 1-Click Judge Demo (w-80) */}
-        <section
-          className={`w-full lg:w-80 xl:w-84 shrink-0 h-full border-r border-slate-800 flex flex-col ${
-            mobileTab === 'vault' ? 'flex' : 'hidden lg:flex'
-          }`}
-        >
-          <SourceVault
-            documents={documents}
-            activeDocumentId={activeDocumentId}
-            onSelectDocument={(doc) => setActiveDocumentId(doc.id)}
-            onLoadSampleInvestigation={handleLoadSampleInvestigation}
-            onUploadDocument={(newDoc) => {
-              setDocuments((prev) => [newDoc, ...prev]);
-              setActiveDocumentId(newDoc.id);
-            }}
-            onDeleteDocument={(docId) => {
-              setDocuments((prev) => prev.filter((d) => d.id !== docId));
-              if (activeDocumentId === docId) {
-                setActiveDocumentId(documents[0]?.id || null);
-              }
-            }}
-            onProcessVault={handleProcessVault}
-            processingVault={processingVault}
-          />
-        </section>
+        {/* Collapsible Slim Left Source Vault (260px) */}
+        {sidebarOpen && (
+          <div className="fixed inset-y-[52px] left-0 z-40 lg:static lg:inset-auto h-[calc(100vh-52px)] lg:h-full">
+            <SourceVault
+              documents={documents}
+              activeDocumentId={activeDocumentId}
+              onSelectDocument={(doc) => setActiveDocumentId(doc.id)}
+              onLoadSampleInvestigation={handleLoadSampleInvestigation}
+              onUploadDocument={(newDoc) => {
+                setDocuments((prev) => [newDoc, ...prev]);
+                setActiveDocumentId(newDoc.id);
+              }}
+              onDeleteDocument={(docId) => {
+                setDocuments((prev) => {
+                  const next = prev.filter((d) => d.id !== docId);
+                  if (activeDocumentId === docId) {
+                    setActiveDocumentId(next[0]?.id || null);
+                  }
+                  return next;
+                });
+              }}
+              onProcessVault={() => processDocuments(documents)}
+              processingVault={processingVault}
+              savedWorkspacesCount={workspaces.length}
+              onOpenSavedWorkspaces={() => setShowHistoryModal(true)}
+            />
+          </div>
+        )}
 
-        {/* Pane 2 (Center): Interactive Knowledge Graph Canvas (flex-1) */}
-        <section
-          className={`flex-1 h-full flex flex-col relative overflow-hidden bg-slate-950 ${
-            mobileTab === 'graph' ? 'flex' : 'hidden lg:flex'
-          }`}
-        >
-          <ErrorBoundary fallbackTitle="Knowledge Graph Canvas Guard" fallbackMessage="An issue was intercepted while rendering the Knowledge Graph workspace. The canvas guard prevented a crash.">
+        {/* Main Studio Area: Guided Empty State OR Selected Studio View */}
+        <section className="flex-1 h-full flex flex-col relative overflow-hidden bg-[#09090B]">
+          {activeView === 'graph' && documents.length === 0 ? (
+            <EmptyOnboardingCanvas
+              onLoadSampleInvestigation={handleLoadSampleInvestigation}
+              onUploadDocument={(newDoc) => {
+                setDocuments((prev) => [newDoc, ...prev]);
+                setActiveDocumentId(newDoc.id);
+                setSidebarOpen(true);
+              }}
+            />
+          ) : activeView === 'graph' ? (
             <GraphCanvas
               nodes={nodes}
               edges={edges}
+              documents={documents}
               selectedNode={selectedNode}
-              onSelectNode={(node) => setSelectedNode(node)}
+              onSelectNode={setSelectedNode}
               onRunLocalQA={handleRunLocalQA}
               localExtractionLatencyMs={localExtractionLatencyMs}
+              processingVault={processingVault}
+              onProcessVault={() => processDocuments(documents)}
             />
-          </ErrorBoundary>
+          ) : (
+            <IntelligencePanel
+              view={activeView}
+              originalText={activeDocument?.content || ''}
+              redactedText={redactedText}
+              redactions={redactions}
+              nodes={nodes}
+              edges={edges}
+              cloudBriefing={cloudBriefing}
+              isSynthesizing={isSynthesizing}
+              onTriggerCloudSynthesis={handleTriggerCloudSynthesis}
+              audioUrl={audioUrl}
+              audioUsedFallback={audioUsedFallback}
+              isGeneratingAudio={isGeneratingAudio}
+              onGenerateAudio={handleGenerateAudio}
+              isOnline={isOnline}
+              lastTelemetry={lastTelemetry}
+              activeDocumentName={activeDocument?.name}
+              onProcessVault={() => processDocuments(documents)}
+              processingVault={processingVault}
+            />
+          )}
 
-          {/* Quick Trigger for Saved Workspaces / Offline Cache Drawer */}
-          <button
-            onClick={() => setShowHistoryModal(true)}
-            className="absolute bottom-4 left-4 z-20 flex items-center space-x-1.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 px-3 py-1.5 rounded-lg text-xs shadow-lg backdrop-blur-sm transition cursor-pointer"
-            title="Inspect Firestore Persistent Workspaces"
-          >
-            <FolderGit2 className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Saved Investigations ({workspaces.length})</span>
-          </button>
-        </section>
-
-        {/* Pane 3 (Right): Hybrid Intelligence Inspector (w-96 to w-[430px]) */}
-        <section
-          className={`w-full lg:w-96 xl:w-[430px] shrink-0 h-full border-l border-slate-800 flex flex-col ${
-            mobileTab === 'intelligence' ? 'flex' : 'hidden lg:flex'
-          }`}
-        >
-          <IntelligencePanel
-            originalText={activeDocument?.content || ''}
-            redactedText={redactedText || ''}
-            redactions={redactions}
-            nodes={nodes}
-            edges={edges}
-            cloudBriefing={cloudBriefing}
-            isSynthesizing={isSynthesizing}
-            onTriggerCloudSynthesis={handleTriggerCloudSynthesis}
-            audioUrl={audioUrl}
-            isGeneratingAudio={isGeneratingAudio}
-            onGenerateAudio={handleGenerateAudio}
-            isOnline={isOnline}
-            lastTelemetry={lastTelemetry}
-            activeDocumentName={activeDocument?.name}
-          />
+          {/* Non-intrusive Floating Error Toast (replaces permanent full-width top banners) */}
+          {pipelineToast && (
+            <div className="fixed top-16 right-4 z-50 max-w-md bg-[#18181B] border border-rose-500/30 rounded-xl p-3 shadow-2xl flex items-start gap-2.5 text-xs text-rose-200">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <span className="flex-1 leading-relaxed">{pipelineToast}</span>
+              <button
+                type="button"
+                onClick={() => setPipelineToast(null)}
+                className="text-[#A1A1AA] hover:text-[#F4F4F5] p-0.5 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </section>
       </main>
 
-      {/* Saved Workspaces & Offline Cache Modal Drawer */}
+      {/* Saved Workspaces Modal */}
       {showHistoryModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-slate-800">
-              <div className="flex items-center space-x-2">
-                <FolderGit2 className="w-5 h-5 text-cyan-400" />
-                <h3 className="font-bold text-sm text-white">Firestore Persistent Workspaces</h3>
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#111114] border border-white/[0.08] rounded-xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2">
+                <FolderArchive className="w-4 h-4 text-indigo-400" />
+                <h3 className="font-semibold text-sm text-[#F4F4F5]">Saved Vaults</h3>
               </div>
               <button
+                type="button"
                 onClick={() => setShowHistoryModal(false)}
-                className="text-slate-400 hover:text-white transition p-1"
+                className="text-[#A1A1AA] hover:text-[#F4F4F5] p-1 rounded-lg hover:bg-[#18181B] transition duration-150 cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-4 overflow-y-auto flex-1">
+            <div className="p-5 overflow-y-auto flex-1">
               {user ? (
                 <WorkspacesHistory
                   workspaces={workspaces}
@@ -680,6 +635,20 @@ export default function App() {
                     setRedactedText(ws.redactedText);
                     setNodes(ws.nodes);
                     setEdges(ws.edges);
+                    if (ws.sources?.length && documents.length === 0) {
+                      setDocuments(
+                        ws.sources.map((s) => ({
+                          id: s.id,
+                          name: s.fileName,
+                          fileType: s.fileType,
+                          sizeBytes: s.sizeBytes,
+                          content: ws.redactedText,
+                          status: { parsed: true, redactedLocally: true, graphIndexed: true },
+                          timestamp: s.uploadedAt,
+                        }))
+                      );
+                      setActiveDocumentId(ws.sources[0].id);
+                    }
                     if (ws.cloudBriefing) setCloudBriefing(ws.cloudBriefing);
                     if (ws.audioUrl) setAudioUrl(ws.audioUrl);
                     if (ws.lastTelemetry) setLastTelemetry(ws.lastTelemetry);
@@ -688,14 +657,14 @@ export default function App() {
                   uid={user.uid}
                 />
               ) : (
-                <p className="text-xs text-slate-500">Sign in to view persistent workspaces.</p>
+                <p className="text-xs text-[#A1A1AA]">Sign in to view persistent vaults.</p>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* 3. Hybrid Inference Benchmark Modal (Local Nano vs Cloud Flash) */}
+      {/* Polished Benchmark Modal */}
       <BenchmarkModal
         isOpen={showBenchmarkModal}
         onClose={() => setShowBenchmarkModal(false)}

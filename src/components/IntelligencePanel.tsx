@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type {
   RedactionItem,
   GraphNode,
@@ -10,11 +10,9 @@ import {
   ShieldCheck,
   Cloud,
   Volume2,
-  VolumeX,
   Play,
   Pause,
   Download,
-  Sparkles,
   AlertTriangle,
   FileJson,
   ChevronDown,
@@ -26,11 +24,12 @@ import {
   ListChecks,
   Compass,
   AlertCircle,
-  RefreshCw,
-  Cpu,
+  Loader2,
+  Sparkles,
 } from 'lucide-react';
 
 interface IntelligencePanelProps {
+  view: 'firewall' | 'brief';
   originalText: string;
   redactedText: string;
   redactions: RedactionItem[];
@@ -40,16 +39,18 @@ interface IntelligencePanelProps {
   isSynthesizing: boolean;
   onTriggerCloudSynthesis: () => Promise<void>;
   audioUrl?: string;
+  audioUsedFallback?: boolean;
   isGeneratingAudio: boolean;
   onGenerateAudio: () => Promise<void>;
   isOnline: boolean;
   lastTelemetry: TelemetryResult | null;
   activeDocumentName?: string;
+  onProcessVault: () => void;
+  processingVault: boolean;
 }
 
-type TabType = 'firewall' | 'synthesis' | 'audio';
-
 export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
+  view,
   originalText,
   redactedText,
   redactions,
@@ -59,44 +60,72 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
   isSynthesizing,
   onTriggerCloudSynthesis,
   audioUrl,
+  audioUsedFallback = false,
   isGeneratingAudio,
   onGenerateAudio,
   isOnline,
-  lastTelemetry,
   activeDocumentName,
+  onProcessVault,
+  processingVault,
 }) => {
-  const [activeTab, setActiveTab] = useState<TabType>('firewall');
-  const [showPayloadModal, setShowPayloadModal] = useState(false);
+  const [showWirePayload, setShowWirePayload] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
 
   // Audio Player State
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Redaction counts by category
-  const redactionCounts = {
-    total: redactions.length,
-    person: redactions.filter((r) => r.type === 'PERSON').length,
-    contact: redactions.filter((r) => r.type === 'CONTACT').length,
-    financial: redactions.filter((r) => r.type === 'FINANCIAL').length,
-    id: redactions.filter((r) => r.type === 'ID').length,
-  };
+  // Match active document slice inside combined sanitized text for clean 1:1 diff when available
+  const displayedSanitizedText = useMemo(() => {
+    if (!redactedText) return '';
+    if (!activeDocumentName) return redactedText;
 
-  // Sanitized payload preview that would be sent to cloud
-  const sanitizedWirePayload = {
-    documentName: activeDocumentName || 'Active Workspace Session',
-    sanitizedTextSample: redactedText.slice(0, 500) + (redactedText.length > 500 ? '...' : ''),
-    piiInterceptionsCount: redactions.length,
-    graphTopology: {
-      nodesCount: nodes.length,
-      edgesCount: edges.length,
-      nodesSample: nodes.slice(0, 5).map((n) => ({ id: n.id, label: n.label, category: n.category })),
-      edgesSample: edges.slice(0, 5).map((e) => ({ source: e.source, target: e.target, relation: e.relation })),
-    },
-    privacyAudit: 'Guaranteed ZERO raw PII or unredacted credentials transmitted to cloud tiers.',
-  };
+    const marker = `--- [DOCUMENT: ${activeDocumentName}] ---`;
+    const idx = redactedText.indexOf(marker);
+    if (idx === -1) return redactedText;
+
+    const afterMarker = redactedText.slice(idx + marker.length).replace(/^\n+/, '');
+    const nextIdx = afterMarker.indexOf('\n--- [DOCUMENT:');
+    return nextIdx === -1 ? afterMarker.trim() : afterMarker.slice(0, nextIdx).trim();
+  }, [redactedText, activeDocumentName]);
+
+  const redactionCounts = useMemo(
+    () => ({
+      total: redactions.length,
+      person: redactions.filter((r) => r.type === 'PERSON').length,
+      contact: redactions.filter((r) => r.type === 'CONTACT').length,
+      financial: redactions.filter((r) => r.type === 'FINANCIAL').length,
+      id: redactions.filter((r) => r.type === 'ID').length,
+    }),
+    [redactions]
+  );
+
+  const sanitizedWirePayload = useMemo(
+    () => ({
+      documentName: activeDocumentName || 'Active Workspace Session',
+      sanitizedTextSample: redactedText.slice(0, 500) + (redactedText.length > 500 ? '...' : ''),
+      piiInterceptionsCount: redactions.length,
+      graphTopology: {
+        nodesCount: nodes.length,
+        edgesCount: edges.length,
+        nodesSample: nodes.slice(0, 6).map((n) => ({
+          id: n.id,
+          label: n.label,
+          category: n.category,
+        })),
+        edgesSample: edges.slice(0, 6).map((e) => ({
+          source: e.source,
+          target: e.target,
+          relation: e.relation,
+        })),
+      },
+      privacyAudit: 'Guaranteed ZERO raw PII transmitted to cloud synthesis.',
+    }),
+    [activeDocumentName, redactedText, redactions.length, nodes, edges]
+  );
 
   const handleCopyPayload = () => {
     navigator.clipboard.writeText(JSON.stringify(sanitizedWirePayload, null, 2));
@@ -104,30 +133,26 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
     setTimeout(() => setCopiedPayload(false), 2000);
   };
 
-  // Audio Playback Effects
   useEffect(() => {
-    if (!audioRef.current) return;
     const audio = audioRef.current;
+    if (!audio) return;
 
     const handleTimeUpdate = () => {
+      setAudioCurrentTime(audio.currentTime || 0);
       if (audio.duration) {
         setAudioProgress((audio.currentTime / audio.duration) * 100);
       }
     };
-
-    const handleLoadedMetadata = () => {
-      setAudioDuration(audio.duration);
-    };
-
+    const handleLoadedMetadata = () => setAudioDuration(audio.duration || 0);
     const handleEnded = () => {
       setIsPlayingAudio(false);
       setAudioProgress(0);
+      setAudioCurrentTime(0);
     };
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
-
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
@@ -141,17 +166,31 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
       audioRef.current.pause();
       setIsPlayingAudio(false);
     } else {
-      audioRef.current.play().catch((err) => console.warn('Audio play error:', err));
+      audioRef.current.play().catch((err) => console.warn('Audio playback notice:', err));
       setIsPlayingAudio(true);
     }
   };
 
-  // Helper function to render text with highlighted redaction badges
+  const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const pct = Number(e.target.value);
+    setAudioProgress(pct);
+    if (audioRef.current && audioRef.current.duration) {
+      audioRef.current.currentTime = (pct / 100) * audioRef.current.duration;
+      setAudioCurrentTime(audioRef.current.currentTime);
+    }
+  };
+
+  const formatSec = (s: number) => {
+    const mins = Math.floor(s / 60);
+    const secs = Math.floor(s % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const renderHighlightedSanitizedText = (text: string) => {
     if (!text) {
       return (
-        <span className="text-slate-500 italic text-xs">
-          No document content selected. Ingest a document or load the sample investigation to inspect.
+        <span className="text-[#A1A1AA] italic text-xs">
+          Vault not yet processed. Run Process Vault to inspect locally sanitized output.
         </span>
       );
     }
@@ -164,10 +203,9 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
         return (
           <span
             key={idx}
-            className="inline-block bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded px-1.5 py-0.5 mx-0.5 text-[11px] font-mono font-semibold"
-            title="Redacted Person Name (Local Gemini Nano)"
+            className="inline-block bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded px-1.5 py-0.5 mx-0.5 text-[11px] font-mono font-medium"
           >
-            👤 [PERSON]
+            [REDACTED_PERSON]
           </span>
         );
       }
@@ -175,10 +213,9 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
         return (
           <span
             key={idx}
-            className="inline-block bg-sky-500/20 text-sky-300 border border-sky-500/40 rounded px-1.5 py-0.5 mx-0.5 text-[11px] font-mono font-semibold"
-            title="Redacted Contact / Email / Phone (Local Gemini Nano)"
+            className="inline-block bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded px-1.5 py-0.5 mx-0.5 text-[11px] font-mono font-medium"
           >
-            ✉️ [CONTACT]
+            [REDACTED_CONTACT]
           </span>
         );
       }
@@ -186,10 +223,9 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
         return (
           <span
             key={idx}
-            className="inline-block bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded px-1.5 py-0.5 mx-0.5 text-[11px] font-mono font-semibold"
-            title="Redacted Financial Card / Account (Local Gemini Nano)"
+            className="inline-block bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded px-1.5 py-0.5 mx-0.5 text-[11px] font-mono font-medium"
           >
-            💳 [FINANCIAL]
+            [REDACTED_FINANCIAL]
           </span>
         );
       }
@@ -197,10 +233,9 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
         return (
           <span
             key={idx}
-            className="inline-block bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded px-1.5 py-0.5 mx-0.5 text-[11px] font-mono font-semibold"
-            title="Redacted SSN / Government ID (Local Gemini Nano)"
+            className="inline-block bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded px-1.5 py-0.5 mx-0.5 text-[11px] font-mono font-medium"
           >
-            🪪 [GOV_ID]
+            [REDACTED_ID]
           </span>
         );
       }
@@ -208,546 +243,433 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
     });
   };
 
-  return (
-    <div className="flex flex-col h-full bg-slate-950 border-l border-slate-800 text-slate-200">
-      {/* Tab Navigation Header */}
-      <div className="p-2 border-b border-slate-800 bg-slate-900/60 backdrop-blur-sm">
-        <div className="flex items-center space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-          <button
-            onClick={() => setActiveTab('firewall')}
-            className={`flex-1 flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-md font-medium transition cursor-pointer ${
-              activeTab === 'firewall'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="truncate">Privacy Firewall</span>
-            {redactions.length > 0 && (
-              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] px-1 rounded-full font-mono">
-                {redactions.length}
-              </span>
-            )}
-          </button>
+  // =========================================================
+  // VIEW 1: PRIVACY FIREWALL FULL VIEW
+  // =========================================================
+  if (view === 'firewall') {
+    return (
+      <div className="flex-1 h-full overflow-y-auto bg-[#09090B]">
+        <div className="max-w-6xl mx-auto p-6 lg:p-8 space-y-6">
+          {/* View Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <h1 className="text-lg font-semibold tracking-tight text-[#F4F4F5]">
+                  Privacy Firewall
+                </h1>
+              </div>
+              <p className="text-xs text-[#A1A1AA]">
+                Sensitive PII is intercepted and tokenized locally before any cloud escalation.
+              </p>
+            </div>
 
-          <button
-            onClick={() => setActiveTab('synthesis')}
-            className={`flex-1 flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-md font-medium transition cursor-pointer ${
-              activeTab === 'synthesis'
-                ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <Cloud className="w-3.5 h-3.5 text-cyan-300" />
-            <span className="truncate">Cloud Synthesis</span>
-            {cloudBriefing && (
-              <span className="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] px-1 rounded-full font-mono">
-                Ready
-              </span>
+            {!redactedText && (
+              <button
+                type="button"
+                onClick={onProcessVault}
+                disabled={processingVault}
+                className="h-9 px-4 rounded-lg bg-[#F4F4F5] hover:bg-white text-[#09090B] text-xs font-medium transition duration-150 inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {processingVault && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{processingVault ? 'Processing Vault...' : 'Process Vault'}</span>
+              </button>
             )}
-          </button>
+          </div>
 
-          <button
-            onClick={() => setActiveTab('audio')}
-            className={`flex-1 flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-md font-medium transition cursor-pointer ${
-              activeTab === 'audio'
-                ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <Volume2 className="w-3.5 h-3.5 text-amber-400" />
-            <span className="truncate">Audio Brief</span>
-          </button>
+          {/* Summary Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {[
+              { label: 'Total Blocked', value: redactionCounts.total, color: 'text-[#F4F4F5]' },
+              { label: 'Persons', value: redactionCounts.person, color: 'text-amber-400' },
+              { label: 'Contacts', value: redactionCounts.contact, color: 'text-sky-400' },
+              { label: 'Financial', value: redactionCounts.financial, color: 'text-rose-400' },
+              { label: 'Gov / Secret IDs', value: redactionCounts.id, color: 'text-emerald-400' },
+            ].map((stat) => (
+              <div
+                key={stat.label}
+                className="bg-[#111114] border border-white/[0.08] rounded-xl p-3.5"
+              >
+                <div className={`text-xl font-mono tabular-nums font-semibold ${stat.color}`}>
+                  {stat.value}
+                </div>
+                <div className="text-[11px] text-[#A1A1AA] mt-0.5">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Side-by-Side Split Diff */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs text-[#A1A1AA]">
+              <span>
+                Inspecting:{' '}
+                <span className="font-mono text-[#F4F4F5]">
+                  {activeDocumentName || 'Active Source'}
+                </span>
+              </span>
+              <span className="font-mono tabular-nums text-[11px]">
+                {redactions.length} total vault redactions
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Left: Original Local Input */}
+              <div className="bg-[#111114] border border-white/[0.08] rounded-xl overflow-hidden flex flex-col">
+                <div className="px-4 py-2.5 border-b border-white/[0.08] flex items-center justify-between bg-[#18181B]/60">
+                  <span className="text-xs font-medium text-[#F4F4F5]">Original Local Input</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                    Stays On-Device
+                  </span>
+                </div>
+                <div className="p-4 max-h-[380px] overflow-y-auto text-xs font-mono text-[#A1A1AA] leading-relaxed whitespace-pre-wrap select-text">
+                  {originalText || (
+                    <span className="italic">Select a source document from the left sidebar.</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Right: Sanitized Output */}
+              <div className="bg-[#111114] border border-white/[0.08] rounded-xl overflow-hidden flex flex-col">
+                <div className="px-4 py-2.5 border-b border-white/[0.08] flex items-center justify-between bg-[#18181B]/60">
+                  <span className="text-xs font-medium text-[#F4F4F5]">Sanitized Output</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                    Cloud Safe
+                  </span>
+                </div>
+                <div className="p-4 max-h-[380px] overflow-y-auto text-xs font-mono text-[#F4F4F5]/90 leading-relaxed whitespace-pre-wrap select-text">
+                  {renderHighlightedSanitizedText(displayedSanitizedText)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Intercepted PII Registry */}
+          {redactions.length > 0 && (
+            <div className="bg-[#111114] border border-white/[0.08] rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-[#F4F4F5]">
+                  Blocked PII Items ({redactions.length})
+                </h2>
+                <span className="text-[11px] text-[#A1A1AA]">Tokenized prior to cloud egress</span>
+              </div>
+              <div className="divide-y divide-white/[0.06] max-h-64 overflow-y-auto">
+                {redactions.map((item, i) => (
+                  <div
+                    key={i}
+                    className="px-4 py-2.5 flex items-center justify-between gap-4 text-xs font-mono"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#18181B] border border-white/[0.08] text-[#A1A1AA] shrink-0">
+                        {item.type}
+                      </span>
+                      <span className="text-[#A1A1AA] line-through truncate">
+                        {item.originalSnippet}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <ArrowRight className="w-3 h-3 text-[#A1A1AA]/60" />
+                      <span className="text-emerald-400 text-[11px]">{item.replacement}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+    );
+  }
 
-      {/* Main Tab Content Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* ========================================================= */}
-        {/* TAB 1: PRIVACY FIREWALL */}
-        {/* ========================================================= */}
-        {activeTab === 'firewall' && (
-          <div className="space-y-4">
-            {/* Banner explaining Local Privacy Guarantee */}
-            <div className="p-3 bg-gradient-to-r from-emerald-950/40 to-slate-900/60 border border-emerald-500/30 rounded-xl">
-              <div className="flex items-start space-x-2.5">
-                <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg shrink-0 mt-0.5">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                    Tier 1 Local Privacy Firewall
-                  </h4>
-                  <p className="text-[11px] text-slate-300 leading-relaxed mt-0.5">
-                    All PII, customer contacts, account numbers, and ID credentials are intercepted and
-                    redacted <span className="font-semibold text-emerald-400">100% on-device</span> via
-                    Gemini Nano prior to any cloud transmission.
-                  </p>
-                </div>
-              </div>
-
-              {/* Interception Counts Pill Bar */}
-              <div className="grid grid-cols-4 gap-2 mt-3 pt-2 border-t border-emerald-500/20 text-[11px]">
-                <div className="bg-slate-950/80 px-2 py-1.5 rounded-lg border border-slate-800 text-center">
-                  <div className="text-amber-400 font-bold font-mono text-xs">{redactionCounts.person}</div>
-                  <div className="text-[10px] text-slate-400">Names</div>
-                </div>
-                <div className="bg-slate-950/80 px-2 py-1.5 rounded-lg border border-slate-800 text-center">
-                  <div className="text-sky-400 font-bold font-mono text-xs">{redactionCounts.contact}</div>
-                  <div className="text-[10px] text-slate-400">Contacts</div>
-                </div>
-                <div className="bg-slate-950/80 px-2 py-1.5 rounded-lg border border-slate-800 text-center">
-                  <div className="text-rose-400 font-bold font-mono text-xs">{redactionCounts.financial}</div>
-                  <div className="text-[10px] text-slate-400">Financial</div>
-                </div>
-                <div className="bg-slate-950/80 px-2 py-1.5 rounded-lg border border-slate-800 text-center">
-                  <div className="text-emerald-400 font-bold font-mono text-xs">{redactionCounts.id}</div>
-                  <div className="text-[10px] text-slate-400">Gov ID</div>
-                </div>
-              </div>
+  // =========================================================
+  // VIEW 2: CLOUD BRIEF FULL VIEW
+  // =========================================================
+  return (
+    <div className="flex-1 h-full overflow-y-auto bg-[#09090B]">
+      <div className="max-w-5xl mx-auto p-6 lg:p-8 space-y-6">
+        {/* Document Header & Run Cloud Synthesis Action */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-indigo-400" />
+              <h1 className="text-lg font-semibold tracking-tight text-[#F4F4F5]">
+                Executive Cloud Brief
+              </h1>
             </div>
+            <p className="text-xs text-[#A1A1AA]">
+              Cross-document synthesis via Gemini 3.8 Flash using exclusively sanitized text and
+              graph topology.
+            </p>
+          </div>
 
-            {/* Side-by-Side Comparison: Raw vs Sanitized */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-300 flex items-center space-x-1.5">
-                  <span>Redaction Diff Inspector</span>
-                  {activeDocumentName && (
-                    <span className="text-slate-400 font-mono text-[10px]">({activeDocumentName})</span>
-                  )}
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  {redactions.length} tokens replaced locally
-                </span>
-              </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowWirePayload((prev) => !prev)}
+              className="h-9 px-3 rounded-lg bg-[#111114] hover:bg-[#18181B] border border-white/[0.08] text-xs font-medium text-[#A1A1AA] hover:text-[#F4F4F5] inline-flex items-center gap-1.5 transition duration-150 cursor-pointer"
+            >
+              <FileJson className="w-3.5 h-3.5" />
+              <span>{showWirePayload ? 'Hide Payload' : 'Inspect Payload'}</span>
+              {showWirePayload ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Column 1: Raw Original Text */}
-                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex flex-col">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-                    <span className="text-[11px] font-bold text-rose-400 flex items-center space-x-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                      <span>Original Source (Raw)</span>
-                    </span>
-                    <span className="text-[10px] bg-rose-950/60 text-rose-300 border border-rose-800/40 px-1.5 py-0.5 rounded font-mono">
-                      Stays Local
-                    </span>
-                  </div>
-                  <div className="flex-1 max-h-64 overflow-y-auto text-[11px] font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-all">
-                    {originalText || (
-                      <span className="text-slate-500 italic">No document selected</span>
-                    )}
-                  </div>
-                </div>
+            <button
+              type="button"
+              onClick={onTriggerCloudSynthesis}
+              disabled={isSynthesizing || !redactedText}
+              className="h-9 px-4 rounded-lg bg-[#F4F4F5] hover:bg-white text-[#09090B] text-xs font-medium inline-flex items-center gap-2 transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isSynthesizing ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Synthesizing...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{cloudBriefing ? 'Re-run Cloud Synthesis' : 'Run Cloud Synthesis'}</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
 
-                {/* Column 2: Sanitized Local Output */}
-                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex flex-col">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-                    <span className="text-[11px] font-bold text-emerald-400 flex items-center space-x-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      <span>Sanitized Output</span>
-                    </span>
-                    <span className="text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 px-1.5 py-0.5 rounded font-mono">
-                      Cloud Safe
-                    </span>
-                  </div>
-                  <div className="flex-1 max-h-64 overflow-y-auto text-[11px] font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-all">
-                    {renderHighlightedSanitizedText(redactedText)}
-                  </div>
-                </div>
-              </div>
+        {/* Collapsible Sanitized Payload Preview */}
+        {showWirePayload && (
+          <div className="bg-[#111114] border border-white/[0.08] rounded-xl overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-white/[0.08] flex items-center justify-between text-xs">
+              <span className="inline-flex items-center gap-1.5 text-emerald-400 font-medium">
+                <Lock className="w-3.5 h-3.5" />
+                <span>Sanitized Wire Payload (Zero Raw PII)</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyPayload}
+                className="inline-flex items-center gap-1 text-[#A1A1AA] hover:text-[#F4F4F5] cursor-pointer"
+              >
+                {copiedPayload ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+                <span>{copiedPayload ? 'Copied' : 'Copy'}</span>
+              </button>
             </div>
+            <pre className="p-4 max-h-56 overflow-y-auto text-[11px] font-mono text-[#A1A1AA] leading-relaxed">
+              {JSON.stringify(sanitizedWirePayload, null, 2)}
+            </pre>
+          </div>
+        )}
 
-            {/* List of Detected Redactions */}
-            {redactions.length > 0 && (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 space-y-2">
-                <h5 className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                  Intercepted PII Registry ({redactions.length})
-                </h5>
-                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                  {redactions.map((item, i) => (
+        {/* Integrated Audio Briefing Player Bar at Top of Report */}
+        <div className="bg-[#111114] border border-white/[0.08] rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          {audioUrl && <audio ref={audioRef} src={audioUrl} preload="metadata" />}
+
+          <div className="flex items-center gap-3 min-w-0">
+            {audioUrl ? (
+              <button
+                type="button"
+                onClick={toggleAudioPlay}
+                className="w-9 h-9 rounded-full bg-[#F4F4F5] hover:bg-white text-[#09090B] flex items-center justify-center shrink-0 transition duration-150 cursor-pointer"
+                title={isPlayingAudio ? 'Pause' : 'Play'}
+              >
+                {isPlayingAudio ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
+              </button>
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-[#18181B] border border-white/[0.08] text-[#A1A1AA] flex items-center justify-center shrink-0">
+                <Volume2 className="w-4 h-4" />
+              </div>
+            )}
+
+            <div className="min-w-0 space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-[#F4F4F5]">Audio Briefing</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#18181B] border border-white/[0.08] text-[#A1A1AA]">
+                  {audioUsedFallback || !isOnline
+                    ? 'Web Speech Fallback'
+                    : 'gemini-3.1-flash-tts-preview'}
+                </span>
+              </div>
+              <p className="text-[11px] text-[#A1A1AA] truncate">
+                {audioUrl
+                  ? 'Studio executive narration ready for playback.'
+                  : 'Generate spoken executive briefing from your sanitized summary.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Scrubber when audioUrl exists */}
+          {audioUrl && (
+            <div className="flex items-center gap-3 flex-1 max-w-xs">
+              <span className="text-[11px] font-mono tabular-nums text-[#A1A1AA] w-9 text-right">
+                {formatSec(audioCurrentTime)}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={audioProgress}
+                onChange={handleScrub}
+                className="flex-1 h-1 bg-[#18181B] rounded-lg appearance-none cursor-pointer accent-[#F4F4F5]"
+                aria-label="Audio progress"
+              />
+              <span className="text-[11px] font-mono tabular-nums text-[#A1A1AA] w-9">
+                {audioDuration ? formatSec(audioDuration) : '--:--'}
+              </span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 shrink-0">
+            {audioUrl && (
+              <a
+                href={audioUrl}
+                download="synapsevault-executive-brief.wav"
+                className="h-8 px-2.5 rounded-lg bg-[#18181B] hover:bg-white/[0.06] border border-white/[0.08] text-[11px] font-medium text-[#F4F4F5] inline-flex items-center gap-1.5 transition duration-150"
+                title="Download WAV"
+              >
+                <Download className="w-3.5 h-3.5 text-[#A1A1AA]" />
+                <span>WAV</span>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={onGenerateAudio}
+              disabled={isGeneratingAudio || (!cloudBriefing && !redactedText)}
+              className="h-8 px-3 rounded-lg bg-[#18181B] hover:bg-white/[0.06] border border-white/[0.08] text-xs font-medium text-[#F4F4F5] inline-flex items-center gap-1.5 transition duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isGeneratingAudio ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                  <span>Generating...</span>
+                </>
+              ) : (
+                <span>{audioUrl ? 'Regenerate' : 'Generate Audio'}</span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Synthesized Executive Report Body */}
+        {cloudBriefing ? (
+          <div className="space-y-5">
+            {/* Executive Summary */}
+            <section className="bg-[#111114] border border-white/[0.08] rounded-xl p-6 space-y-2.5">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">
+                <Compass className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Executive Summary</span>
+              </div>
+              <p className="text-sm text-[#F4F4F5]/95 leading-relaxed">
+                {cloudBriefing.executiveSummary}
+              </p>
+            </section>
+
+            {/* Detected Contradictions */}
+            {cloudBriefing.contradictions && cloudBriefing.contradictions.length > 0 && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-rose-400 flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Detected Contradictions ({cloudBriefing.contradictions.length})</span>
+                  </h2>
+                </div>
+
+                <div className="space-y-3">
+                  {cloudBriefing.contradictions.map((c, i) => (
                     <div
                       key={i}
-                      className="flex items-center justify-between text-xs bg-slate-950/70 border border-slate-800/80 px-2.5 py-1.5 rounded-lg font-mono"
+                      className="bg-[#111114] border border-white/[0.08] border-l-2 border-l-rose-500 rounded-xl p-5 space-y-3"
                     >
-                      <div className="flex items-center space-x-2 truncate mr-2">
-                        <span
-                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                            item.type === 'PERSON'
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                              : item.type === 'CONTACT'
-                              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                              : item.type === 'FINANCIAL'
-                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          }`}
-                        >
-                          {item.type}
-                        </span>
-                        <span className="text-slate-400 line-through truncate max-w-[140px]" title={item.originalSnippet}>
-                          {item.originalSnippet}
-                        </span>
+                      <div className="text-xs font-medium text-[#F4F4F5] leading-snug">
+                        {c.conflictReason}
                       </div>
-                      <div className="flex items-center space-x-1.5 shrink-0">
-                        <ArrowRight className="w-3 h-3 text-slate-600" />
-                        <span className="text-emerald-400 text-[10px] font-bold">{item.replacement}</span>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div className="bg-[#18181B] border border-white/[0.06] rounded-lg p-3 space-y-1">
+                          <span className="text-[10px] font-mono uppercase text-[#A1A1AA] block">
+                            Claim A
+                          </span>
+                          <span className="text-[#F4F4F5]/90 leading-relaxed block">
+                            {c.claimA}
+                          </span>
+                        </div>
+                        <div className="bg-[#18181B] border border-white/[0.06] rounded-lg p-3 space-y-1">
+                          <span className="text-[10px] font-mono uppercase text-[#A1A1AA] block">
+                            Claim B
+                          </span>
+                          <span className="text-[#F4F4F5]/90 leading-relaxed block">
+                            {c.claimB}
+                          </span>
+                        </div>
                       </div>
+
+                      {c.citation && (
+                        <div className="text-[11px] font-mono text-[#A1A1AA]">
+                          Citation: {c.citation}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
-          </div>
-        )}
 
-        {/* ========================================================= */}
-        {/* TAB 2: CLOUD SYNTHESIS */}
-        {/* ========================================================= */}
-        {activeTab === 'synthesis' && (
-          <div className="space-y-4">
-            {/* Cloud Escalation Trigger Banner */}
-            <div className="p-3.5 bg-gradient-to-r from-purple-950/40 via-indigo-950/30 to-slate-900 border border-purple-500/30 rounded-xl space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start space-x-2.5">
-                  <div className="p-1.5 bg-purple-500/20 text-purple-300 rounded-lg shrink-0 mt-0.5">
-                    <Cloud className="w-4 h-4" />
+            {/* Knowledge Gaps & Recommended Action Plan */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {cloudBriefing.knowledgeGaps && cloudBriefing.knowledgeGaps.length > 0 && (
+                <section className="bg-[#111114] border border-white/[0.08] rounded-xl p-5 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-400">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span>Knowledge Gaps</span>
                   </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider">
-                      Tier 2 Cloud Escalation (Gemini 3.8 Flash)
-                    </h4>
-                    <p className="text-[11px] text-slate-300 leading-relaxed mt-0.5">
-                      Transmits <span className="font-semibold text-emerald-400">ONLY</span> sanitized text & graph topology
-                      for deep cross-document contradiction reasoning.
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setShowPayloadModal(!showPayloadModal)}
-                  className="flex items-center space-x-1 text-[10px] font-mono bg-slate-900/90 text-cyan-300 hover:text-cyan-200 border border-slate-700 px-2 py-1 rounded-lg transition"
-                  title="View sanitized wire payload"
-                >
-                  <FileJson className="w-3 h-3 text-cyan-400" />
-                  <span>{showPayloadModal ? 'Hide Wire JSON' : 'Inspect Wire JSON'}</span>
-                  {showPayloadModal ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                </button>
-              </div>
-
-              {/* Wire Payload Collapsible Preview */}
-              {showPayloadModal && (
-                <div className="bg-slate-950 border border-cyan-500/30 rounded-lg p-2.5 text-[10px] font-mono space-y-2">
-                  <div className="flex items-center justify-between text-slate-400 pb-1.5 border-b border-slate-800">
-                    <span className="flex items-center space-x-1 text-cyan-400 font-semibold">
-                      <Lock className="w-3 h-3 text-emerald-400" />
-                      <span>Wire Payload (Zero PII Transmitted)</span>
-                    </span>
-                    <button
-                      onClick={handleCopyPayload}
-                      className="flex items-center space-x-1 hover:text-slate-200 text-slate-400 transition"
-                    >
-                      {copiedPayload ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      <span>{copiedPayload ? 'Copied' : 'Copy'}</span>
-                    </button>
-                  </div>
-                  <pre className="max-h-40 overflow-y-auto text-slate-300 text-[10px] leading-tight">
-                    {JSON.stringify(sanitizedWirePayload, null, 2)}
-                  </pre>
-                </div>
+                  <ul className="space-y-2.5 text-xs text-[#F4F4F5]/90 leading-relaxed">
+                    {cloudBriefing.knowledgeGaps.map((gap, i) => (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                        <span>{gap}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               )}
 
-              {/* Action Trigger Button */}
-              <button
-                onClick={onTriggerCloudSynthesis}
-                disabled={isSynthesizing || !redactedText}
-                className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs shadow-lg transition flex items-center justify-center space-x-2 ${
-                  isSynthesizing
-                    ? 'bg-purple-900/60 text-purple-300 border border-purple-500/30 cursor-wait'
-                    : !redactedText
-                    ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-600/30 cursor-pointer'
-                }`}
-              >
-                {isSynthesizing ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-purple-300" />
-                    <span>Synthesizing via Gemini 3.8 Flash...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 text-cyan-300" />
-                    <span>Trigger Tier 2 Cloud Escalation</span>
-                  </>
-                )}
-              </button>
+              {cloudBriefing.recommendedActions && cloudBriefing.recommendedActions.length > 0 && (
+                <section className="bg-[#111114] border border-white/[0.08] rounded-xl p-5 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-400">
+                    <ListChecks className="w-3.5 h-3.5" />
+                    <span>Action Plan</span>
+                  </div>
+                  <ul className="space-y-2.5 text-xs text-[#F4F4F5]/90 leading-relaxed">
+                    {cloudBriefing.recommendedActions.map((action, i) => (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" />
+                        <span>{action}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </div>
-
-            {/* Synthesized Output Display */}
-            {cloudBriefing ? (
-              <div className="space-y-4">
-                {/* 1. Executive Summary */}
-                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 space-y-2">
-                  <div className="flex items-center space-x-2 text-cyan-400 text-xs font-bold uppercase tracking-wider">
-                    <Compass className="w-4 h-4" />
-                    <span>Executive Summary</span>
-                  </div>
-                  <p className="text-xs text-slate-200 leading-relaxed font-sans">
-                    {cloudBriefing.executiveSummary}
-                  </p>
-                </div>
-
-                {/* 2. Detected Contradictions (Flagged in high-contrast Amber/Red) */}
-                {cloudBriefing.contradictions && cloudBriefing.contradictions.length > 0 && (
-                  <div className="bg-rose-950/30 border border-rose-500/40 rounded-xl p-3.5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2 text-rose-400 text-xs font-bold uppercase tracking-wider">
-                        <AlertTriangle className="w-4 h-4 text-rose-500 animate-pulse" />
-                        <span>Flagged Contradictions ({cloudBriefing.contradictions.length})</span>
-                      </div>
-                      <span className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-mono">
-                        High Severity
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      {cloudBriefing.contradictions.map((c, i) => (
-                        <div
-                          key={i}
-                          className="bg-slate-950/90 border border-rose-500/30 rounded-lg p-2.5 text-xs space-y-1.5"
-                        >
-                          <div className="flex items-baseline space-x-1.5 text-rose-300 font-semibold text-[11px]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0 mt-1" />
-                            <span>Conflict: {c.conflictReason}</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-[10px] font-mono pt-1 text-slate-300 border-t border-slate-800/80">
-                            <div className="bg-slate-900 p-1.5 rounded border border-slate-800">
-                              <span className="text-slate-400 block text-[9px] uppercase">Claim A</span>
-                              <span>{c.claimA}</span>
-                            </div>
-                            <div className="bg-slate-900 p-1.5 rounded border border-slate-800">
-                              <span className="text-slate-400 block text-[9px] uppercase">Claim B</span>
-                              <span>{c.claimB}</span>
-                            </div>
-                          </div>
-                          {c.citation && (
-                            <div className="text-[10px] text-slate-400 italic">
-                              Citation: {c.citation}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 3. Knowledge Gaps */}
-                {cloudBriefing.knowledgeGaps && cloudBriefing.knowledgeGaps.length > 0 && (
-                  <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 space-y-2">
-                    <div className="flex items-center space-x-2 text-amber-400 text-xs font-bold uppercase tracking-wider">
-                      <AlertCircle className="w-4 h-4" />
-                      <span>Knowledge Gaps & Open Inquiries</span>
-                    </div>
-                    <ul className="space-y-1.5 text-xs text-slate-300">
-                      {cloudBriefing.knowledgeGaps.map((gap, i) => (
-                        <li key={i} className="flex items-start space-x-2">
-                          <span className="text-amber-400 font-bold">•</span>
-                          <span>{gap}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* 4. Action Plan */}
-                {cloudBriefing.recommendedActions && cloudBriefing.recommendedActions.length > 0 && (
-                  <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 space-y-2">
-                    <div className="flex items-center space-x-2 text-emerald-400 text-xs font-bold uppercase tracking-wider">
-                      <ListChecks className="w-4 h-4" />
-                      <span>Recommended Action Plan</span>
-                    </div>
-                    <ul className="space-y-1.5 text-xs text-slate-300">
-                      {cloudBriefing.recommendedActions.map((action, i) => (
-                        <li key={i} className="flex items-start space-x-2">
-                          <span className="text-emerald-400 font-bold">✓</span>
-                          <span>{action}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-6 text-center space-y-2">
-                <Cpu className="w-8 h-8 text-slate-600 mx-auto" />
-                <h5 className="text-xs font-semibold text-slate-400">Cloud Synthesis Pending</h5>
-                <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
-                  Click the button above to escalate the sanitized graph and redacted data to Gemini 3.8 Flash.
-                </p>
-              </div>
-            )}
+          </div>
+        ) : (
+          <div className="bg-[#111114] border border-white/[0.08] rounded-xl p-10 text-center space-y-3">
+            <Cloud className="w-6 h-6 text-[#A1A1AA] mx-auto" />
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium text-[#F4F4F5]">No Cloud Synthesis Generated Yet</h3>
+              <p className="text-xs text-[#A1A1AA] max-w-md mx-auto leading-relaxed">
+                {redactedText
+                  ? 'Click Run Cloud Synthesis above to escalate the sanitized knowledge graph for deep contradiction reasoning.'
+                  : 'First process your sources locally in the Source Vault before escalating to Cloud Synthesis.'}
+              </p>
+            </div>
           </div>
         )}
-
-        {/* ========================================================= */}
-        {/* TAB 3: AUDIO BRIEFING */}
-        {/* ========================================================= */}
-        {activeTab === 'audio' && (
-          <div className="space-y-4">
-            {/* Header Card */}
-            <div className="p-3.5 bg-gradient-to-r from-cyan-950/40 to-slate-900 border border-cyan-500/30 rounded-xl space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="p-1.5 bg-cyan-500/20 text-cyan-300 rounded-lg">
-                    <Volume2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider">
-                      Multimodal Audio Intelligence
-                    </h4>
-                    <p className="text-[11px] text-slate-400">
-                      Powered by <span className="font-mono text-cyan-400">gemini-3.1-flash-tts-preview</span> (with browser fallback)
-                    </p>
-                  </div>
-                </div>
-
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-medium border ${
-                    isOnline
-                      ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
-                      : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                  }`}
-                >
-                  {isOnline ? 'Cloud TTS Active' : 'Offline Web Speech'}
-                </span>
-              </div>
-
-              {/* Generate / Regenerate Button */}
-              <button
-                onClick={onGenerateAudio}
-                disabled={isGeneratingAudio || (!cloudBriefing && !redactedText)}
-                className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs shadow-lg transition flex items-center justify-center space-x-2 ${
-                  isGeneratingAudio
-                    ? 'bg-cyan-900/60 text-cyan-300 border border-cyan-500/30 cursor-wait'
-                    : !cloudBriefing && !redactedText
-                    ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-cyan-600/30 cursor-pointer'
-                }`}
-              >
-                {isGeneratingAudio ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-cyan-300" />
-                    <span>Synthesizing Voice Audio...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 text-amber-300" />
-                    <span>{audioUrl ? 'Regenerate Audio Brief' : 'Generate Audio Briefing'}</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Audio Player & Waveform Visualizer */}
-            {audioUrl ? (
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 space-y-4">
-                <audio ref={audioRef} src={audioUrl} preload="metadata" />
-
-                {/* Simulated Audio Waveform Bar */}
-                <div className="flex items-center justify-between space-x-1 h-12 bg-slate-950/80 rounded-lg p-2 border border-slate-800/80">
-                  {Array.from({ length: 32 }).map((_, idx) => {
-                    const isActive = (idx / 32) * 100 <= audioProgress;
-                    const randomHeight = isPlayingAudio
-                      ? Math.max(20, Math.sin((idx + audioProgress) * 0.5) * 80 + 20)
-                      : 25 + (idx % 5) * 10;
-
-                    return (
-                      <div
-                        key={idx}
-                        className={`w-1 rounded-full transition-all duration-100 ${
-                          isActive
-                            ? 'bg-gradient-to-t from-cyan-500 to-indigo-400'
-                            : 'bg-slate-800'
-                        }`}
-                        style={{ height: `${randomHeight}%` }}
-                      />
-                    );
-                  })}
-                </div>
-
-                {/* Progress Bar */}
-                <div className="space-y-1">
-                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="bg-cyan-400 h-1.5 rounded-full transition-all duration-150"
-                      style={{ width: `${audioProgress}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[10px] font-mono text-slate-400">
-                    <span>
-                      {audioRef.current
-                        ? `${Math.floor(audioRef.current.currentTime || 0)}s`
-                        : '0s'}
-                    </span>
-                    <span>
-                      {audioDuration ? `${Math.floor(audioDuration)}s` : '--'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Playback Controls & Download */}
-                <div className="flex items-center justify-between pt-1 border-t border-slate-800">
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={toggleAudioPlay}
-                      className="p-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full shadow-lg shadow-cyan-600/30 transition cursor-pointer"
-                      title={isPlayingAudio ? 'Pause' : 'Play'}
-                    >
-                      {isPlayingAudio ? (
-                        <Pause className="w-4 h-4 fill-current" />
-                      ) : (
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
-                      )}
-                    </button>
-                    <span className="text-xs font-medium text-slate-300">
-                      {isPlayingAudio ? 'Playing Intelligence Brief' : 'Paused'}
-                    </span>
-                  </div>
-
-                  <a
-                    href={audioUrl}
-                    download="synapsevault-executive-brief.wav"
-                    className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-cyan-300 transition bg-slate-950 px-2.5 py-1.5 rounded-lg border border-slate-800"
-                    title="Download audio briefing file"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download</span>
-                  </a>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-6 text-center space-y-2">
-                <VolumeX className="w-8 h-8 text-slate-600 mx-auto" />
-                <h5 className="text-xs font-semibold text-slate-400">No Audio Generated Yet</h5>
-                <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
-                  Click 'Generate Audio Briefing' above to turn your executive synthesis into spoken intelligence.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Footer Status Strip */}
-      <div className="p-2.5 border-t border-slate-800 bg-slate-950/90 text-[10px] text-slate-400 flex items-center justify-between font-mono">
-        <span className="flex items-center space-x-1.5">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              lastTelemetry?.executionSource === 'on-device' ? 'bg-emerald-400' : 'bg-purple-400'
-            }`}
-          />
-          <span>Last Source: {lastTelemetry?.executionSource || 'None'}</span>
-        </span>
-        <span>Latency: {lastTelemetry ? `${lastTelemetry.latencyMs}ms` : '--'}</span>
       </div>
     </div>
   );

@@ -1,7 +1,57 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 @layer base {
-  body {
-    @apply bg-slate-950 text-slate-100 antialiased font-sans;
+  :root {
+    color-scheme: dark;
+    --sv-canvas: #09090b;
+    --sv-surface: #111114;
+    --sv-elevated: #18181b;
+    --sv-border: rgba(255, 255, 255, 0.08);
+    --sv-text: #f4f4f5;
+    --sv-muted: #a1a1aa;
   }
+
+  body {
+    background-color: var(--sv-canvas);
+    color: var(--sv-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Studio scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Subtle React Flow studio integration */
+.react-flow__node {
+  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+.react-flow__minimap {
+  background-color: #111114 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
 }

@@ -8,16 +8,10 @@ import {
   Zap,
   Cpu,
   Cloud,
-  CheckCircle2,
-  Lock,
-  Wifi,
+  Loader2,
+  ShieldCheck,
+  WifiOff,
   DollarSign,
-  Activity,
-  Layers,
-  ArrowRight,
-  RefreshCw,
-  Clock,
-  Sparkles,
 } from 'lucide-react';
 
 interface BenchmarkModalProps {
@@ -47,7 +41,6 @@ export const BenchmarkModal: React.FC<BenchmarkModalProps> = ({
 }) => {
   const [inputText, setInputText] = useState<string>(activeDocumentText || DEFAULT_BENCHMARK_SAMPLE);
   const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [benchmarkStatus, setBenchmarkStatus] = useState<string>('');
   const [result, setResult] = useState<BenchmarkSideBySideResult | null>(null);
 
   if (!isOpen) return null;
@@ -57,81 +50,74 @@ export const BenchmarkModal: React.FC<BenchmarkModalProps> = ({
     setResult(null);
 
     try {
-      setBenchmarkStatus('Executing On-Device Gemini Nano (Strict Local)...');
-      await new Promise((r) => setTimeout(r, 80));
-
-      setBenchmarkStatus('Benchmarking Local vs Cloud (gemini-3.8-flash)...');
       const benchmarkData = await runSideBySideBenchmark(inputText, isOnline);
       setResult(benchmarkData);
     } catch (err) {
       console.error('[BenchmarkModal] Benchmark error:', err);
     } finally {
       setIsRunning(false);
-      setBenchmarkStatus('');
     }
   };
 
   const payloadSize = new Blob([inputText]).size;
 
+  const speedDeltaText = (() => {
+    if (!result) return null;
+    if (result.local.success && result.cloud.success && result.local.latencyMs > 0) {
+      if (result.local.latencyMs < result.cloud.latencyMs) {
+        return `${(result.cloud.latencyMs / result.local.latencyMs).toFixed(1)}x Faster`;
+      }
+      return `${result.local.latencyMs}ms Local`;
+    }
+    if (result.cloud.success) return `${result.cloud.latencyMs}ms Cloud`;
+    return 'Offline / Fallback';
+  })();
+
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-950 border border-slate-800 rounded-2xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden text-slate-200">
-        {/* Modal Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-          <div className="flex items-center space-x-2.5">
-            <div className="bg-gradient-to-tr from-cyan-500 to-indigo-600 p-2 rounded-xl text-white shadow-md shadow-indigo-500/20">
-              <Zap className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="font-bold text-sm text-white">Hybrid Inference Benchmark</h3>
-                <span className="bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-semibold px-2 py-0.5 rounded-full text-[10px]">
-                  Side-by-Side Analysis
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                Direct factual comparison of on-device local inference vs. cloud escalation using identical inputs.
-              </p>
-            </div>
+      <div className="bg-[#111114] border border-white/[0.08] rounded-xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-[#F4F4F5]">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between">
+          <div className="space-y-0.5">
+            <h2 className="text-sm font-semibold tracking-tight text-[#F4F4F5]">
+              Hybrid Inference Benchmark
+            </h2>
+            <p className="text-xs text-[#A1A1AA]">
+              Side-by-side comparison of on-device Gemini Nano vs. cloud Gemini 3.8 Flash.
+            </p>
           </div>
-
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+            className="p-1.5 rounded-lg text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#18181B] transition duration-150 cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Modal Body */}
+        {/* Body */}
         <div className="p-5 overflow-y-auto space-y-5 flex-1">
-          {/* Test Input Selector & Overview */}
+          {/* Payload Input */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-300 flex items-center space-x-1.5">
-                <Layers className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Benchmark Test Payload</span>
-              </span>
-              <div className="flex items-center space-x-2 text-[10px] font-mono text-slate-400">
-                <span>{inputText.length} chars</span>
-                <span>•</span>
-                <span className="text-cyan-400">{payloadSize} Bytes</span>
+              <span className="font-medium text-[#A1A1AA]">Test Payload</span>
+              <div className="flex items-center gap-3 text-[11px] font-mono tabular-nums text-[#A1A1AA]">
+                <span>{payloadSize} B</span>
                 {activeDocumentText && (
-                  <>
-                    <span>•</span>
-                    <button
-                      onClick={() => setInputText(activeDocumentText)}
-                      className="text-indigo-400 hover:underline"
-                    >
-                      Use Active Doc
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => setInputText(activeDocumentText)}
+                    className="text-indigo-400 hover:text-indigo-300 font-sans cursor-pointer"
+                  >
+                    Use active doc
+                  </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => setInputText(DEFAULT_BENCHMARK_SAMPLE)}
-                  className="text-slate-400 hover:text-slate-200 hover:underline"
+                  className="hover:text-[#F4F4F5] font-sans cursor-pointer"
                 >
-                  Reset Sample
+                  Reset
                 </button>
               </div>
             </div>
@@ -139,225 +125,156 @@ export const BenchmarkModal: React.FC<BenchmarkModalProps> = ({
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              rows={4}
-              className="w-full bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 focus:outline-none focus:border-cyan-500 transition resize-none"
-              placeholder="Paste or write input text to benchmark..."
+              rows={3}
+              className="w-full bg-[#09090B] border border-white/[0.08] rounded-lg p-3 text-xs font-mono text-[#F4F4F5]/90 focus:outline-none focus:border-white/[0.2] transition duration-150 resize-none"
             />
           </div>
 
-          {/* Benchmark Trigger CTA */}
-          <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-xl p-3">
-            <div className="flex items-center space-x-2 text-xs text-slate-300">
-              <Activity className="w-4 h-4 text-emerald-400" />
-              <span>Runs the extraction pipeline across both local and cloud engines simultaneously.</span>
-            </div>
-
+          <div className="flex items-center justify-end">
             <button
+              type="button"
               onClick={handleRunBenchmark}
               disabled={isRunning || !inputText.trim()}
-              className={`px-4 py-2 rounded-xl text-xs font-bold shadow-lg transition flex items-center space-x-2 ${
-                isRunning
-                  ? 'bg-slate-800 text-slate-400 cursor-wait'
-                  : 'bg-gradient-to-r from-emerald-600 via-cyan-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white cursor-pointer shadow-cyan-600/20'
-              }`}
+              className="h-9 px-4 rounded-lg bg-[#F4F4F5] hover:bg-white text-[#09090B] text-xs font-medium inline-flex items-center gap-2 transition duration-150 cursor-pointer disabled:opacity-50"
             >
               {isRunning ? (
                 <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-300" />
-                  <span>{benchmarkStatus || 'Benchmarking Engines...'}</span>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Running Benchmark...</span>
                 </>
               ) : (
                 <>
-                  <Zap className="w-3.5 h-3.5 fill-current text-amber-300" />
+                  <Zap className="w-3.5 h-3.5" />
                   <span>Run Side-by-Side Benchmark</span>
                 </>
               )}
             </button>
           </div>
 
-          {/* Results Comparison Table */}
+          {/* Results Delta Callouts + Crisp Table */}
           {result && (
             <div className="space-y-4">
-              <div className="overflow-hidden border border-slate-800 rounded-xl bg-slate-900/40">
+              {/* Visual Delta Callout Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-[#18181B] border border-white/[0.08] rounded-xl p-3.5 space-y-1">
+                  <div className="flex items-center gap-1.5 text-[11px] text-[#A1A1AA]">
+                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Latency Delta</span>
+                  </div>
+                  <div className="text-base font-mono tabular-nums font-semibold text-[#F4F4F5]">
+                    {speedDeltaText}
+                  </div>
+                </div>
+
+                <div className="bg-[#18181B] border border-white/[0.08] rounded-xl p-3.5 space-y-1">
+                  <div className="flex items-center gap-1.5 text-[11px] text-[#A1A1AA]">
+                    <WifiOff className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Local Network Traffic</span>
+                  </div>
+                  <div className="text-base font-mono tabular-nums font-semibold text-emerald-400">
+                    0 B Network Egress
+                  </div>
+                </div>
+
+                <div className="bg-[#18181B] border border-white/[0.08] rounded-xl p-3.5 space-y-1">
+                  <div className="flex items-center gap-1.5 text-[11px] text-[#A1A1AA]">
+                    <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Local Token Spend</span>
+                  </div>
+                  <div className="text-base font-mono tabular-nums font-semibold text-[#F4F4F5]">
+                    $0.00 Local Cost
+                  </div>
+                </div>
+              </div>
+
+              {/* Minimal Comparison Table */}
+              <div className="border border-white/[0.08] rounded-xl overflow-hidden bg-[#09090B]">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-800 bg-slate-900/80 text-[11px] uppercase tracking-wider text-slate-400 font-mono">
-                      <th className="p-3">Evaluation Metric</th>
-                      <th className="p-3 text-emerald-400 font-bold bg-emerald-950/20 border-x border-slate-800">
-                        <div className="flex items-center space-x-1.5">
-                          <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+                    <tr className="border-b border-white/[0.08] bg-[#18181B]/70 text-[11px] text-[#A1A1AA]">
+                      <th className="py-2.5 px-4 font-medium">Metric</th>
+                      <th className="py-2.5 px-4 font-medium text-emerald-400">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Cpu className="w-3.5 h-3.5" />
                           <span>On-Device (Gemini Nano)</span>
-                        </div>
+                        </span>
                       </th>
-                      <th className="p-3 text-purple-400 font-bold bg-purple-950/20">
-                        <div className="flex items-center space-x-1.5">
-                          <Cloud className="w-3.5 h-3.5 text-purple-400" />
+                      <th className="py-2.5 px-4 font-medium text-indigo-400">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Cloud className="w-3.5 h-3.5" />
                           <span>Cloud (Gemini 3.8 Flash)</span>
-                        </div>
+                        </span>
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800 font-mono text-[11px]">
-                    {/* Latency */}
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-3 text-slate-300 font-sans font-medium flex items-center space-x-2">
-                        <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Execution Latency</span>
+                  <tbody className="divide-y divide-white/[0.06] font-mono tabular-nums text-[11px]">
+                    <tr>
+                      <td className="py-2.5 px-4 font-sans text-[#A1A1AA]">Latency</td>
+                      <td className="py-2.5 px-4 text-[#F4F4F5]">
+                        {result.local.success
+                          ? `${result.local.latencyMs} ms`
+                          : result.local.error || 'Unavailable'}
                       </td>
-                      <td className="p-3 bg-emerald-950/10 border-x border-slate-800 text-emerald-300 font-bold">
-                        {result.local.success ? (
-                          <div className="flex items-center space-x-2">
-                            <span>{result.local.latencyMs} ms</span>
-                            {result.cloud.success && result.local.latencyMs < result.cloud.latencyMs && (
-                              <span className="bg-emerald-500/20 text-emerald-400 text-[9px] px-1.5 py-0.2 rounded font-sans">
-                                {(result.cloud.latencyMs / Math.max(1, result.local.latencyMs)).toFixed(1)}x faster
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-rose-400">Failed: {result.local.error}</span>
-                        )}
-                      </td>
-                      <td className="p-3 bg-purple-950/10 text-slate-300">
-                        {result.cloud.success ? (
-                          <span>{result.cloud.latencyMs} ms</span>
-                        ) : (
-                          <span className="text-amber-400">{result.cloud.error || 'Offline'}</span>
-                        )}
+                      <td className="py-2.5 px-4 text-[#F4F4F5]">
+                        {result.cloud.success
+                          ? `${result.cloud.latencyMs} ms`
+                          : result.cloud.error || 'Offline'}
                       </td>
                     </tr>
 
-                    {/* Network Egress */}
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-3 text-slate-300 font-sans font-medium flex items-center space-x-2">
-                        <Wifi className="w-3.5 h-3.5 text-sky-400" />
-                        <span>Network Egress (Bytes Sent)</span>
-                      </td>
-                      <td className="p-3 bg-emerald-950/10 border-x border-slate-800 text-emerald-400 font-bold">
-                        <span>0 Bytes (Air-Gapped)</span>
-                      </td>
-                      <td className="p-3 bg-purple-950/10 text-slate-300">
-                        <span>{result.cloud.networkBytesSent} Bytes</span>
+                    <tr>
+                      <td className="py-2.5 px-4 font-sans text-[#A1A1AA]">Network Bytes Sent</td>
+                      <td className="py-2.5 px-4 text-emerald-400">0 B</td>
+                      <td className="py-2.5 px-4 text-[#F4F4F5]">
+                        {result.cloud.networkBytesSent} B
                       </td>
                     </tr>
 
-                    {/* Privacy Exposure */}
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-3 text-slate-300 font-sans font-medium flex items-center space-x-2">
-                        <Lock className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Privacy Exposure</span>
+                    <tr>
+                      <td className="py-2.5 px-4 font-sans text-[#A1A1AA]">Privacy Exposure</td>
+                      <td className="py-2.5 px-4 text-emerald-400 font-sans">
+                        <span className="inline-flex items-center gap-1">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Zero (On-Device)</span>
+                        </span>
                       </td>
-                      <td className="p-3 bg-emerald-950/10 border-x border-slate-800 text-emerald-400 font-bold">
-                        <div className="flex items-center space-x-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>100% Zero Leakage</span>
-                        </div>
-                      </td>
-                      <td className="p-3 bg-purple-950/10 text-slate-300">
-                        <span>{result.cloud.privacyExposure}</span>
+                      <td className="py-2.5 px-4 text-[#A1A1AA] font-sans">
+                        {result.cloud.privacyExposure}
                       </td>
                     </tr>
 
-                    {/* API Cost */}
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-3 text-slate-300 font-sans font-medium flex items-center space-x-2">
-                        <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Inference API Cost</span>
-                      </td>
-                      <td className="p-3 bg-emerald-950/10 border-x border-slate-800 text-emerald-400 font-bold">
-                        <span>$0.000000 (Free)</span>
-                      </td>
-                      <td className="p-3 bg-purple-950/10 text-slate-300">
-                        <span>+${result.cloud.estimatedCostUsd.toFixed(6)}</span>
+                    <tr>
+                      <td className="py-2.5 px-4 font-sans text-[#A1A1AA]">Estimated Cost</td>
+                      <td className="py-2.5 px-4 text-emerald-400">$0.000000</td>
+                      <td className="py-2.5 px-4 text-[#F4F4F5]">
+                        ${result.cloud.estimatedCostUsd.toFixed(6)}
                       </td>
                     </tr>
 
-                    {/* Structured Knowledge Nodes */}
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-3 text-slate-300 font-sans font-medium flex items-center space-x-2">
-                        <Layers className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Knowledge Nodes Extracted</span>
+                    <tr>
+                      <td className="py-2.5 px-4 font-sans text-[#A1A1AA]">Extracted Topology</td>
+                      <td className="py-2.5 px-4 text-[#F4F4F5]">
+                        {result.local.nodesExtracted} nodes · {result.local.edgesExtracted} edges
                       </td>
-                      <td className="p-3 bg-emerald-950/10 border-x border-slate-800 text-slate-200">
-                        <span>{result.local.nodesExtracted} nodes</span>
-                      </td>
-                      <td className="p-3 bg-purple-950/10 text-slate-200">
-                        <span>{result.cloud.nodesExtracted} nodes</span>
+                      <td className="py-2.5 px-4 text-[#F4F4F5]">
+                        {result.cloud.nodesExtracted} nodes · {result.cloud.edgesExtracted} edges
                       </td>
                     </tr>
 
-                    {/* Structured Edges */}
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-3 text-slate-300 font-sans font-medium flex items-center space-x-2">
-                        <ArrowRight className="w-3.5 h-3.5 text-purple-400" />
-                        <span>Graph Relationship Edges</span>
+                    <tr>
+                      <td className="py-2.5 px-4 font-sans text-[#A1A1AA]">PII Tokens Blocked</td>
+                      <td className="py-2.5 px-4 text-[#F4F4F5]">
+                        {result.local.redactionsCount}
                       </td>
-                      <td className="p-3 bg-emerald-950/10 border-x border-slate-800 text-slate-200">
-                        <span>{result.local.edgesExtracted} edges</span>
-                      </td>
-                      <td className="p-3 bg-purple-950/10 text-slate-200">
-                        <span>{result.cloud.edgesExtracted} edges</span>
-                      </td>
-                    </tr>
-
-                    {/* PII Redactions */}
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-3 text-slate-300 font-sans font-medium flex items-center space-x-2">
-                        <Lock className="w-3.5 h-3.5 text-rose-400" />
-                        <span>PII Tokens Intercepted</span>
-                      </td>
-                      <td className="p-3 bg-emerald-950/10 border-x border-slate-800 text-amber-300 font-bold">
-                        <span>{result.local.redactionsCount} local tokens</span>
-                      </td>
-                      <td className="p-3 bg-purple-950/10 text-slate-300">
-                        <span>{result.cloud.redactionsCount} tokens</span>
-                      </td>
-                    </tr>
-
-                    {/* Offline Support */}
-                    <tr className="hover:bg-slate-900/50">
-                      <td className="p-3 text-slate-300 font-sans font-medium flex items-center space-x-2">
-                        <Activity className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Offline Execution Support</span>
-                      </td>
-                      <td className="p-3 bg-emerald-950/10 border-x border-slate-800 text-emerald-400 font-bold">
-                        <span>100% Offline Capable</span>
-                      </td>
-                      <td className="p-3 bg-purple-950/10 text-slate-400">
-                        <span>Requires Cloud Connectivity</span>
+                      <td className="py-2.5 px-4 text-[#F4F4F5]">
+                        {result.cloud.redactionsCount}
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-
-              {/* Architectural Insight Callout Box */}
-              <div className="p-3.5 bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-indigo-500/30 rounded-xl space-y-1.5 text-xs">
-                <div className="flex items-center space-x-1.5 text-cyan-300 font-bold uppercase tracking-wider text-[11px]">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Key Hybrid AI Architectural Takeaway</span>
-                </div>
-                <p className="text-slate-300 leading-relaxed text-[11px]">
-                  On-device Gemini Nano execution guarantees <span className="text-emerald-400 font-semibold">zero network data leakage</span>,
-                  sub-second deterministic structured extraction, and <span className="text-emerald-400 font-semibold">zero API token cost</span>.
-                  Cloud escalation (Gemini 3.8 Flash via Firebase AI Logic) is selectively reserved for sanitized high-capacity synthesis, cross-document contradiction resolution, and audio generation.
-                </p>
-              </div>
             </div>
           )}
-        </div>
-
-        {/* Modal Footer */}
-        <div className="p-3.5 border-t border-slate-800 bg-slate-950 flex items-center justify-between text-xs">
-          <span className="text-[11px] text-slate-500 font-mono">
-            SynapseVault • Evaluator Benchmark Suite
-          </span>
-          <button
-            onClick={onClose}
-            className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-medium transition cursor-pointer"
-          >
-            Close Benchmark
-          </button>
         </div>
       </div>
     </div>
