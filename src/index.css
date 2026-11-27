@@ -1,31 +1,37 @@
 @import "tailwindcss";
 
 @theme {
+  --font-serif: 'Newsreader', Georgia, Cambria, 'Times New Roman', serif;
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 @layer base {
   :root {
-    color-scheme: dark;
-    --sv-canvas: #09090b;
-    --sv-surface: #111114;
-    --sv-elevated: #18181b;
-    --sv-border: rgba(255, 255, 255, 0.08);
-    --sv-text: #f4f4f5;
-    --sv-muted: #a1a1aa;
+    color-scheme: light;
+    --sv-canvas: #fbfbf9;
+    --sv-muted-surface: #f3f3ef;
+    --sv-surface: #ffffff;
+    --sv-border: #e6e6e2;
+    --sv-border-hover: #cfcfc9;
+    --sv-ink: #141413;
+    --sv-secondary: #63635e;
+    --sv-tertiary: #94948e;
+    --sv-local: #166534;
+    --sv-cloud: #1d4ed8;
+    --sv-risk: #b91c1c;
   }
 
   body {
     background-color: var(--sv-canvas);
-    color: var(--sv-text);
+    color: var(--sv-ink);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* Studio scrollbar styling */
+/* Restrained archival scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -36,22 +42,23 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: #d8d8d2;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: #babab2;
 }
 
-/* Subtle React Flow studio integration */
+/* React Flow crisp editorial node transitions & forced light canvas */
+.react-flow,
+.react-flow__background {
+  color-scheme: light !important;
+  background-color: #fbfbf9 !important;
+  --xy-background-color: #fbfbf9;
+  --xy-background-color-default: #fbfbf9;
+}
+
 .react-flow__node {
-  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
-}
-
-.react-flow__minimap {
-  background-color: #111114 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 12px !important;
-  overflow: hidden;
+  transition: border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
 }

@@ -1,14 +1,7 @@
 import React from 'react';
 import type { WorkspaceRecord } from '../services/workspaceStore';
 import { deleteWorkspace } from '../services/workspaceStore';
-import {
-  Binary,
-  Trash2,
-  WifiOff,
-  Sparkles,
-  Volume2,
-  Lock,
-} from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 
 interface WorkspacesHistoryProps {
   workspaces: WorkspaceRecord[];
@@ -34,7 +27,7 @@ export const WorkspacesHistory: React.FC<WorkspacesHistoryProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between text-xs text-[#A1A1AA]">
+      <div className="flex items-center justify-between text-[12px] text-[#63635E]">
         <span className="font-mono">users/{uid.slice(0, 8)}.../workspaces</span>
         <span className="font-mono tabular-nums">
           {workspaces.length} {workspaces.length === 1 ? 'vault' : 'vaults'}
@@ -42,81 +35,40 @@ export const WorkspacesHistory: React.FC<WorkspacesHistoryProps> = ({
       </div>
 
       {workspaces.length === 0 ? (
-        <div className="text-center py-8 text-[#A1A1AA] text-xs bg-[#18181B] border border-white/[0.06] rounded-xl">
-          No persisted vaults yet. Process your sources to save to Firestore offline cache.
-        </div>
+        <p className="py-6 text-center text-[13px] text-[#63635E] border-t border-[#E6E6E2]">
+          No saved vaults yet. Extract a source set to persist it to Firestore.
+        </p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="divide-y divide-[#E6E6E2] border-t border-[#E6E6E2]">
           {workspaces.map((ws) => {
             const isSelected = selectedWorkspaceId === ws.id;
             return (
               <div
                 key={ws.id}
                 onClick={() => onSelectWorkspace(ws)}
-                className={`p-4 rounded-xl border text-left transition duration-150 cursor-pointer flex flex-col justify-between space-y-3 ${
-                  isSelected
-                    ? 'border-indigo-500/60 bg-[#18181B]'
-                    : 'border-white/[0.08] bg-[#18181B]/60 hover:bg-[#18181B]'
+                className={`py-3.5 px-2 flex items-start justify-between gap-4 transition duration-150 cursor-pointer ${
+                  isSelected ? 'bg-[#F3F3EF]' : 'hover:bg-[#FBFBF9]'
                 }`}
               >
-                <div className="space-y-1.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <h4 className="text-xs font-semibold text-[#F4F4F5] truncate">{ws.name}</h4>
-                    <button
-                      type="button"
-                      onClick={(e) => handleDelete(e, ws.id)}
-                      className="text-[#A1A1AA] hover:text-rose-400 p-0.5 transition duration-150 cursor-pointer"
-                      title="Delete vault"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <p className="text-[11px] text-[#A1A1AA] line-clamp-2 leading-relaxed">
-                    {ws.cloudBriefing?.executiveSummary ||
-                      ws.redactedText.slice(0, 100) ||
-                      'Sanitized research vault'}
-                  </p>
-                </div>
-
-                <div className="pt-2 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-mono tabular-nums">
-                  <div className="flex items-center gap-1.5">
-                    <span className="bg-[#111114] text-[#F4F4F5] border border-white/[0.08] px-2 py-0.5 rounded inline-flex items-center gap-1">
-                      <Binary className="w-3 h-3 text-indigo-400" />
-                      <span>
-                        {ws.nodes.length}N · {ws.edges.length}E
-                      </span>
-                    </span>
-
-                    {ws.redactionsCount > 0 && (
-                      <span className="bg-[#111114] text-emerald-400 border border-white/[0.08] px-1.5 py-0.5 rounded inline-flex items-center gap-1">
-                        <Lock className="w-2.5 h-2.5" />
-                        <span>{ws.redactionsCount} PII</span>
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1 text-[#A1A1AA] font-sans">
-                    {ws.isOfflineCreated && (
-                      <span className="inline-flex items-center gap-0.5 text-amber-400">
-                        <WifiOff className="w-2.5 h-2.5" />
-                        <span>Offline</span>
-                      </span>
-                    )}
-                    {ws.cloudBriefing && (
-                      <span className="inline-flex items-center gap-0.5 text-indigo-400">
-                        <Sparkles className="w-2.5 h-2.5" />
-                        <span>Briefed</span>
-                      </span>
-                    )}
-                    {ws.audioGenerated && (
-                      <span className="inline-flex items-center gap-0.5 text-emerald-400">
-                        <Volume2 className="w-2.5 h-2.5" />
-                        <span>Audio</span>
-                      </span>
-                    )}
+                <div className="min-w-0 space-y-1">
+                  <div className="text-[13px] font-medium text-[#141413] truncate">{ws.name}</div>
+                  <div className="text-[12px] font-mono tabular-nums text-[#63635E]">
+                    {ws.nodes.length} nodes · {ws.edges.length} edges · {ws.redactionsCount}{' '}
+                    redactions
+                    {ws.cloudBriefing ? ' · briefed' : ''}
+                    {ws.audioGenerated ? ' · audio' : ''}
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={(e) => handleDelete(e, ws.id)}
+                  className="text-[#94948E] hover:text-[#B91C1C] p-1 transition duration-150 cursor-pointer shrink-0"
+                  title="Delete vault"
+                  aria-label={`Delete ${ws.name}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             );
           })}

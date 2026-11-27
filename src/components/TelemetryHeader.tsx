@@ -1,23 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { PromptAPIAvailabilityStatus, TelemetryResult } from '../services/hybridAI';
-import {
-  PanelLeft,
-  Cpu,
-  Zap,
-  Cloud,
-  BarChart3,
-  ChevronDown,
-  User as UserIcon,
-  LogOut,
-  RotateCcw,
-  Info,
-  Check,
-  Database,
-} from 'lucide-react';
+import { PanelLeft, ChevronDown } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
 export type InferenceModeSetting = 'prefer_on_device' | 'only_on_device' | 'only_in_cloud';
-export type StudioView = 'graph' | 'firewall' | 'brief';
+export type StudioView = 'canvas' | 'redactions' | 'briefing';
 
 interface TelemetryHeaderProps {
   sidebarOpen: boolean;
@@ -25,7 +12,6 @@ interface TelemetryHeaderProps {
   activeView: StudioView;
   onSelectView: (view: StudioView) => void;
   redactionsCount: number;
-  hasCloudBriefing: boolean;
   promptApiStatus: PromptAPIAvailabilityStatus;
   downloadProgress: number;
   activeMode: InferenceModeSetting;
@@ -55,7 +41,6 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
   activeView,
   onSelectView,
   redactionsCount,
-  hasCloudBriefing,
   promptApiStatus,
   downloadProgress,
   activeMode,
@@ -74,18 +59,25 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
   onGoogleSignIn,
   onSignOut,
 }) => {
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [engineOpen, setEngineOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const engineRef = useRef<HTMLDivElement | null>(null);
+  const accountRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!popoverOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setPopoverOpen(false);
+      if (engineRef.current && !engineRef.current.contains(e.target as Node)) {
+        setEngineOpen(false);
+      }
+      if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
+        setAccountOpen(false);
       }
     };
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPopoverOpen(false);
+      if (e.key === 'Escape') {
+        setEngineOpen(false);
+        setAccountOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEsc);
@@ -93,235 +85,169 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEsc);
     };
-  }, [popoverOpen]);
+  }, []);
 
-  // Determine sleek status pill label and indicator color
-  const pillInfo = (() => {
+  // Concise engine dot & label
+  const engineIndicator = (() => {
     if (lastTelemetry) {
       if (lastTelemetry.executionSource === 'on-device') {
         return {
-          dot: 'bg-emerald-400',
-          label: `On-Device · ${lastTelemetry.latencyMs}ms`,
+          dotColor: '#166534',
+          label: `Local · ${lastTelemetry.latencyMs}ms`,
         };
       }
       return {
-        dot: 'bg-indigo-400',
-        label: `Cloud Fallback · ${lastTelemetry.latencyMs}ms`,
+        dotColor: '#1D4ED8',
+        label: `Cloud · ${lastTelemetry.latencyMs}ms`,
       };
     }
+    if (activeMode === 'only_in_cloud') {
+      return { dotColor: '#1D4ED8', label: 'Cloud' };
+    }
     if (promptApiStatus === 'available') {
-      return { dot: 'bg-emerald-400', label: 'On-Device Ready' };
+      return { dotColor: '#166534', label: 'Local' };
     }
-    if (promptApiStatus === 'downloading') {
-      return { dot: 'bg-amber-400 animate-pulse', label: `Nano ${downloadProgress}%` };
-    }
-    if (promptApiStatus === 'downloadable') {
-      return { dot: 'bg-amber-400', label: 'Nano Downloadable' };
-    }
-    return { dot: 'bg-indigo-400', label: 'Cloud Fallback' };
+    return { dotColor: '#1D4ED8', label: 'Cloud' };
   })();
 
-  const hasSubtleNotice = promptApiStatus === 'unavailable' || Boolean(firebaseDiagnostic);
+  const userInitial = user
+    ? user.isAnonymous
+      ? 'J'
+      : (user.displayName || user.email || 'U').charAt(0).toUpperCase()
+    : '';
 
   return (
-    <header className="h-[52px] shrink-0 sticky top-0 z-50 bg-[#09090B]/95 backdrop-blur-md border-b border-white/[0.08] px-4 flex items-center justify-between gap-3 select-none">
-      {/* 1. Left Group: Sidebar toggle + Wordmark + Compact Network/Sync Dot */}
-      <div className="flex items-center gap-2.5 min-w-0">
+    <header className="h-12 shrink-0 sticky top-0 z-50 bg-[#FFFFFF] border-b border-[#E6E6E2] px-4 flex items-center justify-between gap-4 select-none">
+      {/* Left: Sidebar toggle + Newsreader wordmark */}
+      <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className={`p-1.5 rounded-lg border transition duration-150 cursor-pointer ${
-            sidebarOpen
-              ? 'bg-[#18181B] border-white/[0.08] text-[#F4F4F5]'
-              : 'bg-transparent border-transparent text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#18181B]'
-          }`}
-          title={sidebarOpen ? 'Hide Source Vault' : 'Show Source Vault'}
-          aria-label="Toggle Source Vault Sidebar"
+          className="p-1.5 rounded-md text-[#63635E] hover:text-[#141413] hover:bg-[#F3F3EF] transition duration-150 cursor-pointer"
+          title={sidebarOpen ? 'Hide sources sidebar' : 'Show sources sidebar'}
+          aria-label="Toggle sources sidebar"
         >
           <PanelLeft className="w-4 h-4" />
         </button>
 
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-[#18181B] border border-white/[0.1] flex items-center justify-center text-indigo-400">
-            <Zap className="w-3.5 h-3.5" />
-          </div>
-          <span className="font-semibold text-[14px] tracking-tight text-[#F4F4F5]">
-            SynapseVault
-          </span>
-        </div>
-
-        <div className="h-3.5 w-px bg-white/[0.08] hidden sm:block" />
-
-        <div
-          className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-[#A1A1AA] px-2 py-0.5 rounded-full bg-[#111114] border border-white/[0.06]"
-          title={`Network: ${isOnline ? 'Online' : 'Offline'} · Firestore: ${firestoreSyncState}`}
-        >
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              isOnline ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'
-            }`}
-          />
-          <span>{isOnline ? 'Online' : 'Offline Local'}</span>
-        </div>
+        <span className="font-serif font-medium text-[17px] tracking-tight text-[#141413]">
+          SynapseVault
+        </span>
       </div>
 
-      {/* 2. Center Group: Clean Segmented View Switcher */}
-      <nav
-        aria-label="Workspace View"
-        className="flex items-center bg-[#111114] p-0.5 rounded-lg border border-white/[0.08] text-xs"
-      >
-        <button
-          type="button"
-          onClick={() => onSelectView('graph')}
-          className={`px-3 py-1 rounded-md font-medium transition duration-150 cursor-pointer ${
-            activeView === 'graph'
-              ? 'bg-[#18181B] text-[#F4F4F5] border border-white/[0.08]'
-              : 'text-[#A1A1AA] hover:text-[#F4F4F5] border border-transparent'
-          }`}
-        >
-          Graph
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSelectView('firewall')}
-          className={`px-3 py-1 rounded-md font-medium transition duration-150 cursor-pointer flex items-center gap-1.5 ${
-            activeView === 'firewall'
-              ? 'bg-[#18181B] text-[#F4F4F5] border border-white/[0.08]'
-              : 'text-[#A1A1AA] hover:text-[#F4F4F5] border border-transparent'
-          }`}
-        >
-          <span>Privacy Firewall</span>
-          {redactionsCount > 0 && (
-            <span className="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-400">
-              {redactionsCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSelectView('brief')}
-          className={`px-3 py-1 rounded-md font-medium transition duration-150 cursor-pointer flex items-center gap-1.5 ${
-            activeView === 'brief'
-              ? 'bg-[#18181B] text-[#F4F4F5] border border-white/[0.08]'
-              : 'text-[#A1A1AA] hover:text-[#F4F4F5] border border-transparent'
-          }`}
-        >
-          <span>Cloud Brief</span>
-          {hasCloudBriefing && (
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" title="Synthesis ready" />
-          )}
-        </button>
+      {/* Center: Simple underline navigation tabs */}
+      <nav aria-label="Workspace sections" className="h-full flex items-stretch gap-6 text-[13px]">
+        {(
+          [
+            { id: 'canvas', label: 'Canvas' },
+            {
+              id: 'redactions',
+              label: redactionsCount > 0 ? `Redactions (${redactionsCount})` : 'Redactions',
+            },
+            { id: 'briefing', label: 'Briefing' },
+          ] as const
+        ).map((tab) => {
+          const isActive = activeView === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onSelectView(tab.id)}
+              className={`h-full px-1 inline-flex items-center font-medium border-b-2 transition duration-150 cursor-pointer ${
+                isActive
+                  ? 'border-[#141413] text-[#141413]'
+                  : 'border-transparent text-[#63635E] hover:text-[#141413]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </nav>
 
-      {/* 3. Right Group: Hybrid Status Pill + Benchmark + Auth */}
-      <div className="flex items-center gap-2 shrink-0">
-        {/* Hybrid Status Pill & Telemetry Popover */}
-        <div className="relative" ref={popoverRef}>
+      {/* Right: Understated engine trigger + simple account button */}
+      <div className="flex items-center gap-3 shrink-0">
+        {/* Engine Status Trigger & Popover */}
+        <div className="relative" ref={engineRef}>
           <button
             type="button"
-            onClick={() => setPopoverOpen((prev) => !prev)}
-            className="h-8 px-2.5 rounded-lg bg-[#111114] hover:bg-[#18181B] border border-white/[0.08] flex items-center gap-2 text-xs text-[#F4F4F5] transition duration-150 cursor-pointer"
-            title="Inspect Hybrid Routing, On-Device Status & Savings"
+            onClick={() => setEngineOpen((prev) => !prev)}
+            className="h-8 px-2.5 rounded-md border border-[#E6E6E2] hover:border-[#CFCFC9] bg-[#FFFFFF] flex items-center gap-2 text-[13px] text-[#141413] transition duration-150 cursor-pointer"
+            title="Inference routing and diagnostics"
           >
-            <span className={`w-2 h-2 rounded-full shrink-0 ${pillInfo.dot}`} />
-            <span className="font-mono tabular-nums text-[11px] font-medium hidden md:inline">
-              {pillInfo.label}
-            </span>
-            {hasSubtleNotice && (
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-amber-400"
-                title="Environment / browser fallback note inside"
-              />
-            )}
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-[#A1A1AA] transition duration-150 ${
-                popoverOpen ? 'rotate-180' : ''
-              }`}
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ backgroundColor: engineIndicator.dotColor }}
             />
+            <span className="font-mono tabular-nums text-[12px] text-[#141413]">
+              {engineIndicator.label}
+            </span>
+            <ChevronDown className="w-3.5 h-3.5 text-[#94948E]" />
           </button>
 
-          {/* Telemetry & Routing Dropdown Popover */}
-          {popoverOpen && (
-            <div className="absolute right-0 mt-2 w-80 bg-[#18181B] border border-white/[0.08] rounded-xl p-4 shadow-2xl z-50 space-y-4 text-xs">
-              {/* Routing Mode Selector */}
+          {engineOpen && (
+            <div className="absolute right-0 mt-2 w-80 bg-[#FFFFFF] border border-[#E6E6E2] rounded-lg shadow-lg p-4 z-50 space-y-4 text-[13px] text-[#141413]">
+              {/* Routing Mode Radio Options */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A1A1AA]">
-                    Routing Mode
-                  </span>
-                  <div className="flex items-center gap-1.5 text-[10px] text-[#A1A1AA]">
-                    <span>{manualOverride ? 'Manual' : `Remote (${remoteConfigMode})`}</span>
-                    {manualOverride && (
-                      <button
-                        type="button"
-                        onClick={onResetToRemoteConfig}
-                        className="text-indigo-400 hover:text-indigo-300 inline-flex items-center gap-0.5 cursor-pointer"
-                        title="Reset to Firebase Remote Config default"
-                      >
-                        <RotateCcw className="w-2.5 h-2.5" />
-                        <span>Reset</span>
-                      </button>
-                    )}
-                  </div>
+                  <span className="text-[12px] font-medium text-[#141413]">Routing Mode</span>
+                  {manualOverride ? (
+                    <button
+                      type="button"
+                      onClick={onResetToRemoteConfig}
+                      className="text-[12px] text-[#63635E] hover:text-[#141413] underline cursor-pointer"
+                    >
+                      Reset ({remoteConfigMode})
+                    </button>
+                  ) : (
+                    <span className="text-[12px] text-[#94948E]">Remote Config</span>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-1 gap-1 bg-[#111114] p-1 rounded-lg border border-white/[0.06]">
+                <div className="space-y-1.5">
                   {(
                     [
                       {
                         id: 'prefer_on_device',
                         label: 'Auto Hybrid',
                         desc: 'Prefer Gemini Nano, cloud fallback',
-                        icon: Zap,
                       },
                       {
                         id: 'only_on_device',
                         label: 'Strict Local',
-                        desc: '100% on-device (air-gapped test)',
-                        icon: Cpu,
+                        desc: 'On-device only',
                       },
                       {
                         id: 'only_in_cloud',
-                        label: 'Cloud Compare',
-                        desc: 'Force Gemini 3.8 Flash',
-                        icon: Cloud,
+                        label: 'Cloud Only',
+                        desc: 'Gemini 3.8 Flash',
                       },
                     ] as const
-                  ).map((opt) => {
-                    const Icon = opt.icon;
-                    const active = activeMode === opt.id;
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => onSetMode(opt.id, true)}
-                        className={`flex items-center justify-between px-2.5 py-2 rounded-md text-left transition duration-150 cursor-pointer ${
-                          active
-                            ? 'bg-[#18181B] text-[#F4F4F5] border border-white/[0.08]'
-                            : 'text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-white/[0.03] border border-transparent'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                          <div>
-                            <div className="font-medium text-xs leading-tight">{opt.label}</div>
-                            <div className="text-[10px] text-[#A1A1AA]">{opt.desc}</div>
-                          </div>
-                        </div>
-                        {active && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
-                      </button>
-                    );
-                  })}
+                  ).map((opt) => (
+                    <label
+                      key={opt.id}
+                      className="flex items-start gap-2.5 py-1 cursor-pointer group"
+                    >
+                      <input
+                        type="radio"
+                        name="routing-mode"
+                        checked={activeMode === opt.id}
+                        onChange={() => onSetMode(opt.id, true)}
+                        className="mt-0.5 accent-[#141413] cursor-pointer"
+                      />
+                      <div className="leading-tight">
+                        <div className="text-[13px] font-medium text-[#141413]">{opt.label}</div>
+                        <div className="text-[12px] text-[#63635E]">{opt.desc}</div>
+                      </div>
+                    </label>
+                  ))}
                 </div>
               </div>
 
-              {/* On-Device Model & Browser Status */}
-              <div className="pt-3 border-t border-white/[0.08] space-y-2">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#A1A1AA]">Gemini Nano</span>
-                  <span className="font-mono tabular-nums text-[#F4F4F5]">
+              <div className="border-t border-[#E6E6E2] pt-3 space-y-1.5 text-[12px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#63635E]">Gemini Nano</span>
+                  <span className="font-mono tabular-nums text-[#141413]">
                     {promptApiStatus === 'available' && 'Ready'}
                     {promptApiStatus === 'downloading' && `Downloading ${downloadProgress}%`}
                     {promptApiStatus === 'downloadable' && 'Downloadable'}
@@ -329,116 +255,116 @@ export const TelemetryHeader: React.FC<TelemetryHeaderProps> = ({
                   </span>
                 </div>
 
-                {promptApiStatus === 'downloading' && (
-                  <div className="w-full h-1 bg-[#111114] rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-amber-400 transition-all duration-150"
-                      style={{ width: `${downloadProgress}%` }}
-                    />
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#A1A1AA] flex items-center gap-1">
-                    <Database className="w-3 h-3" />
-                    <span>Firestore Cache</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#63635E]">Connection</span>
+                  <span className="font-mono text-[#141413]">
+                    {isOnline ? 'Online' : 'Offline'} · {firestoreSyncState}
                   </span>
-                  <span className="font-mono text-[#F4F4F5]">{firestoreSyncState}</span>
                 </div>
 
-                {promptApiStatus === 'unavailable' && (
-                  <div className="p-2.5 rounded-lg bg-[#111114] border border-white/[0.06] flex items-start gap-2 text-[11px] text-[#A1A1AA] leading-relaxed">
-                    <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                    <span>
-                      On-device Prompt API not active in this browser. Using cloud fallback cleanly.
-                      Enable <code className="font-mono text-[#F4F4F5]">#prompt-api-for-gemini-nano</code> in Chrome 139+ for local inference.
-                    </span>
-                  </div>
-                )}
-
-                {firebaseDiagnostic && (
-                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-start gap-2 text-[11px] text-amber-200 leading-relaxed">
-                    <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                    <span>{firebaseDiagnostic}</span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-[#63635E]">Local Runs / Saved</span>
+                  <span className="font-mono tabular-nums text-[#141413]">
+                    {cumulativeSavings.totalLocalRuns} · ${cumulativeSavings.totalCostSavedUsd.toFixed(4)}
+                  </span>
+                </div>
               </div>
 
-              {/* Cumulative Local Savings */}
-              <div className="pt-3 border-t border-white/[0.08] grid grid-cols-3 gap-2 text-center">
-                <div className="bg-[#111114] border border-white/[0.06] rounded-lg p-2">
-                  <div className="font-mono tabular-nums font-semibold text-xs text-[#F4F4F5]">
-                    {cumulativeSavings.totalLocalRuns}
-                  </div>
-                  <div className="text-[10px] text-[#A1A1AA]">Local Runs</div>
-                </div>
-                <div className="bg-[#111114] border border-white/[0.06] rounded-lg p-2">
-                  <div className="font-mono tabular-nums font-semibold text-xs text-[#F4F4F5]">
-                    {cumulativeSavings.totalTokensSaved}
-                  </div>
-                  <div className="text-[10px] text-[#A1A1AA]">Tokens Saved</div>
-                </div>
-                <div className="bg-[#111114] border border-white/[0.06] rounded-lg p-2">
-                  <div className="font-mono tabular-nums font-semibold text-xs text-emerald-400">
-                    ${cumulativeSavings.totalCostSavedUsd.toFixed(4)}
-                  </div>
-                  <div className="text-[10px] text-[#A1A1AA]">Est. Saved</div>
-                </div>
+              {promptApiStatus === 'unavailable' && (
+                <p className="text-[12px] text-[#63635E] leading-relaxed border-t border-[#E6E6E2] pt-3">
+                  Chrome Prompt API is inactive in this browser; requests fall back to cloud
+                  inference. Enable{' '}
+                  <code className="font-mono text-[11px] text-[#141413]">
+                    #prompt-api-for-gemini-nano
+                  </code>{' '}
+                  in Chrome 139+ for local execution.
+                </p>
+              )}
+
+              {firebaseDiagnostic && (
+                <p className="text-[12px] text-[#B91C1C] leading-relaxed border-t border-[#E6E6E2] pt-3">
+                  {firebaseDiagnostic}
+                </p>
+              )}
+
+              <div className="border-t border-[#E6E6E2] pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEngineOpen(false);
+                    onOpenBenchmark();
+                  }}
+                  className="w-full py-1.5 px-3 rounded-md border border-[#E6E6E2] hover:border-[#CFCFC9] bg-[#FFFFFF] text-[12px] font-medium text-[#141413] text-center transition duration-150 cursor-pointer"
+                >
+                  Run local vs. cloud benchmark
+                </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Compact Benchmark Button */}
-        <button
-          type="button"
-          onClick={onOpenBenchmark}
-          className="h-8 px-2.5 rounded-lg bg-[#111114] hover:bg-[#18181B] border border-white/[0.08] text-xs font-medium text-[#F4F4F5] flex items-center gap-1.5 transition duration-150 cursor-pointer"
-          title="Compare Local vs. Cloud Performance"
-        >
-          <BarChart3 className="w-3.5 h-3.5 text-[#A1A1AA]" />
-          <span className="hidden lg:inline">Benchmark</span>
-        </button>
-
-        {/* Compact Auth / Profile Control */}
-        {authLoading ? (
-          <div className="h-8 px-2.5 rounded-lg bg-[#111114] border border-white/[0.08] flex items-center text-[11px] text-[#A1A1AA]">
-            ...
-          </div>
-        ) : user ? (
-          <div className="h-8 px-2.5 rounded-lg bg-[#111114] border border-white/[0.08] flex items-center gap-2 text-xs">
-            <UserIcon className="w-3.5 h-3.5 text-[#A1A1AA]" />
-            <span className="text-[11px] font-medium text-[#F4F4F5] max-w-[84px] truncate hidden sm:inline">
-              {user.isAnonymous ? 'Judge' : user.displayName || user.email}
-            </span>
-            {user.isAnonymous && (
+        {/* Account Control */}
+        <div className="relative" ref={accountRef}>
+          {authLoading ? (
+            <span className="text-[12px] text-[#94948E]">...</span>
+          ) : user ? (
+            <>
               <button
                 type="button"
-                onClick={onGoogleSignIn}
-                className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
-                title="Upgrade to Google Sign-In"
+                onClick={() => setAccountOpen((prev) => !prev)}
+                className="w-7 h-7 rounded-full border border-[#E6E6E2] hover:border-[#CFCFC9] bg-[#F3F3EF] text-[12px] font-medium text-[#141413] flex items-center justify-center transition duration-150 cursor-pointer"
+                title={user.isAnonymous ? 'Judge session (Anonymous)' : user.displayName || user.email || 'Account'}
               >
-                Sign in
+                {userInitial}
               </button>
-            )}
+
+              {accountOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-[#FFFFFF] border border-[#E6E6E2] rounded-lg shadow-lg p-3 z-50 space-y-2.5 text-[12px]">
+                  <div className="border-b border-[#E6E6E2] pb-2">
+                    <div className="font-medium text-[#141413] truncate">
+                      {user.isAnonymous ? 'Guest Judge' : user.displayName || 'Signed in'}
+                    </div>
+                    {user.email && (
+                      <div className="text-[#63635E] truncate">{user.email}</div>
+                    )}
+                  </div>
+
+                  {user.isAnonymous && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountOpen(false);
+                        onGoogleSignIn();
+                      }}
+                      className="w-full text-left py-1 text-[#141413] hover:underline cursor-pointer"
+                    >
+                      Sign in with Google
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountOpen(false);
+                      onSignOut();
+                    }}
+                    className="w-full text-left py-1 text-[#63635E] hover:text-[#B91C1C] cursor-pointer"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
             <button
               type="button"
-              onClick={onSignOut}
-              className="text-[#A1A1AA] hover:text-rose-400 transition duration-150 cursor-pointer"
-              title="Sign Out"
+              onClick={onGoogleSignIn}
+              className="text-[13px] font-medium text-[#141413] hover:text-[#63635E] transition duration-150 cursor-pointer"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              Sign in
             </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={onGoogleSignIn}
-            className="h-8 px-3 rounded-lg bg-[#F4F4F5] hover:bg-white text-[#09090B] text-xs font-medium transition duration-150 cursor-pointer"
-          >
-            Sign in
-          </button>
-        )}
+          )}
+        </div>
       </div>
     </header>
   );

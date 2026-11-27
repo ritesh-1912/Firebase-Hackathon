@@ -1,19 +1,6 @@
 import React, { useState } from 'react';
 import { parseUploadedFile, type ParsedDocument } from '../services/documentParser';
-import {
-  Plus,
-  FileText,
-  ShieldCheck,
-  Trash2,
-  FileCode,
-  Image as ImageIcon,
-  Loader2,
-  FolderArchive,
-  Upload,
-  Sparkles,
-  ArrowRight,
-  Lock,
-} from 'lucide-react';
+import { Plus, Loader2, X } from 'lucide-react';
 
 export interface SourceDocument {
   id: string;
@@ -136,7 +123,7 @@ export const SourceVault: React.FC<SourceVaultProps> = ({
       const file = files[i];
       try {
         const parsed: ParsedDocument = await parseUploadedFile(file);
-        const newDoc: SourceDocument = {
+        onUploadDocument({
           id: parsed.id,
           name: parsed.fileName,
           fileType: parsed.fileType,
@@ -149,12 +136,11 @@ export const SourceVault: React.FC<SourceVaultProps> = ({
             graphIndexed: false,
           },
           timestamp: Date.now(),
-        };
-        onUploadDocument(newDoc);
+        });
       } catch (err) {
         console.error('[SourceVault] Upload error:', err);
         setIngestionError(
-          `Failed to parse ${file.name}: ${err instanceof Error ? err.message : 'Unknown error'}`
+          `Could not parse ${file.name}: ${err instanceof Error ? err.message : 'Unknown error'}`
         );
       }
     }
@@ -175,30 +161,110 @@ export const SourceVault: React.FC<SourceVaultProps> = ({
         setIsDragging(false);
         await handleFiles(e.dataTransfer.files);
       }}
-      className={`h-full w-full lg:w-[260px] shrink-0 bg-[#111114] border-r border-white/[0.08] flex flex-col transition duration-150 ${
-        isDragging ? 'ring-1 ring-inset ring-indigo-500/60 bg-indigo-500/[0.04]' : ''
+      className={`h-full w-[240px] shrink-0 bg-[#F3F3EF] border-r border-[#E6E6E2] flex flex-col transition duration-150 ${
+        isDragging ? 'bg-[#EBEBE5]' : ''
       }`}
     >
-      {/* Slim Sidebar Header */}
-      <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
-        <span className="text-xs font-semibold tracking-tight text-[#F4F4F5]">Sources</span>
-        <span className="text-[11px] font-mono tabular-nums text-[#A1A1AA]">
-          {documents.length}
-        </span>
+      {/* Sidebar Header */}
+      <div className="px-4 py-3 border-b border-[#E6E6E2] flex items-center justify-between">
+        <span className="text-[12px] font-medium text-[#63635E]">Sources</span>
+        {documents.length > 0 && (
+          <span className="text-[12px] font-mono tabular-nums text-[#94948E]">
+            {documents.length}
+          </span>
+        )}
       </div>
 
-      {/* Compact + Add Sources Dropzone Button */}
-      <div className="p-3 border-b border-white/[0.08] space-y-2">
-        <label className="w-full h-9 px-3 rounded-lg bg-[#18181B] hover:bg-white/[0.06] border border-white/[0.08] flex items-center justify-center gap-2 text-xs font-medium text-[#F4F4F5] transition duration-150 cursor-pointer">
+      {/* Clean Vertical List of Files */}
+      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+        {documents.length === 0 ? (
+          <div className="px-2 py-6 space-y-3 text-[13px] text-[#63635E]">
+            <p className="leading-relaxed">No documents staged.</p>
+            <button
+              type="button"
+              onClick={onLoadSampleInvestigation}
+              className="text-[12px] font-medium text-[#141413] underline underline-offset-4 hover:text-[#2B2B29] cursor-pointer"
+            >
+              Load sample case study
+            </button>
+          </div>
+        ) : (
+          documents.map((doc) => {
+            const isSelected = activeDocumentId === doc.id;
+            return (
+              <div
+                key={doc.id}
+                onClick={() => onSelectDocument(doc)}
+                className={`group px-2.5 py-2 rounded-md flex items-center justify-between gap-2 transition duration-150 cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#FFFFFF] text-[#141413] border border-[#E6E6E2]'
+                    : 'border border-transparent text-[#63635E] hover:text-[#141413] hover:bg-[#E6E6E2]/50'
+                }`}
+              >
+                <span className="text-[13px] font-medium truncate leading-snug">{doc.name}</span>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {processingVault && (
+                    <Loader2
+                      className="w-3.5 h-3.5 animate-spin text-[#63635E]"
+                      aria-label="Processing"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteDocument(doc.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-[#94948E] hover:text-[#B91C1C] p-0.5 transition duration-150 cursor-pointer"
+                    title="Remove document"
+                    aria-label={`Remove ${doc.name}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        {ingestionError && (
+          <div className="mt-2 px-2.5 py-2 text-[12px] text-[#B91C1C] border-l-2 border-[#B91C1C] bg-[#FFFFFF]">
+            {ingestionError}
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Controls: Process when pending + Add documents dropzone + Saved vaults */}
+      <div className="p-3 border-t border-[#E6E6E2] space-y-2">
+        {documents.length > 0 && hasPendingDocs && (
+          <button
+            type="button"
+            onClick={onProcessVault}
+            disabled={processingVault}
+            className="w-full h-8 px-3 rounded-md bg-[#141413] hover:bg-[#2B2B29] text-[#FFFFFF] text-[13px] font-medium transition duration-150 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {processingVault ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Processing...</span>
+              </>
+            ) : (
+              <span>Extract &amp; redact</span>
+            )}
+          </button>
+        )}
+
+        <label className="w-full h-8 px-3 rounded-md border border-[#E6E6E2] hover:border-[#CFCFC9] bg-[#FFFFFF] flex items-center justify-center gap-1.5 text-[13px] font-medium text-[#141413] transition duration-150 cursor-pointer">
           {parsing ? (
             <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#63635E]" />
               <span>Parsing...</span>
             </>
           ) : (
             <>
-              <Plus className="w-3.5 h-3.5 text-[#A1A1AA]" />
-              <span>Add Sources</span>
+              <Plus className="w-3.5 h-3.5 text-[#63635E]" />
+              <span>Add documents</span>
             </>
           )}
           <input
@@ -213,285 +279,16 @@ export const SourceVault: React.FC<SourceVaultProps> = ({
           />
         </label>
 
-        {ingestionError && (
-          <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 flex items-start justify-between gap-2">
-            <span className="leading-snug">{ingestionError}</span>
-            <button
-              type="button"
-              onClick={() => setIngestionError(null)}
-              className="text-rose-300 hover:text-white shrink-0 cursor-pointer"
-            >
-              ×
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Clean Document List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {documents.length === 0 ? (
-          <div className="px-3 py-8 text-center space-y-3">
-            <p className="text-xs text-[#A1A1AA] leading-relaxed">
-              No sources loaded. Drop files here or launch the sample case study.
-            </p>
-            <button
-              type="button"
-              onClick={onLoadSampleInvestigation}
-              className="w-full py-2 px-3 rounded-lg bg-[#18181B] hover:bg-white/[0.06] border border-white/[0.08] text-xs font-medium text-[#F4F4F5] transition duration-150 cursor-pointer"
-            >
-              Load Sample Investigation
-            </button>
-          </div>
-        ) : (
-          documents.map((doc) => {
-            const isSelected = activeDocumentId === doc.id;
-            const isProcessed = doc.status.redactedLocally && doc.status.graphIndexed;
-
-            return (
-              <div
-                key={doc.id}
-                onClick={() => onSelectDocument(doc)}
-                className={`group px-2.5 py-2 rounded-lg flex items-center justify-between gap-2 transition duration-150 cursor-pointer ${
-                  isSelected
-                    ? 'bg-[#18181B] border border-white/[0.08] text-[#F4F4F5]'
-                    : 'border border-transparent text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-white/[0.03]'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  {doc.fileType === 'pdf' ? (
-                    <FileText className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                  ) : doc.fileType === 'image' ? (
-                    <ImageIcon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  ) : (
-                    <FileCode className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                  )}
-
-                  <div className="min-w-0">
-                    <div className="text-[12px] font-medium truncate leading-tight">
-                      {doc.name}
-                    </div>
-                    <div className="text-[10px] font-mono tabular-nums text-[#A1A1AA]">
-                      {(doc.sizeBytes / 1024).toFixed(1)} KB
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteDocument(doc.id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-[#A1A1AA] hover:text-rose-400 p-0.5 transition duration-150 cursor-pointer"
-                    title="Remove source"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-
-                  {processingVault ? (
-                    <Loader2
-                      className="w-3.5 h-3.5 animate-spin text-indigo-400"
-                      aria-label="Processing"
-                    />
-                  ) : isProcessed ? (
-                    <span title="Redacted locally & graph indexed">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    </span>
-                  ) : (
-                    <span title="Pending local processing">
-                      <Lock className="w-3 h-3 text-[#A1A1AA]/60" />
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Sidebar Footer: Process Action + Saved Investigations */}
-      <div className="p-3 border-t border-white/[0.08] space-y-2">
-        {documents.length > 0 && (
+        {savedWorkspacesCount > 0 && (
           <button
             type="button"
-            onClick={onProcessVault}
-            disabled={processingVault}
-            className={`w-full h-9 px-3 rounded-lg text-xs font-medium transition duration-150 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${
-              hasPendingDocs
-                ? 'bg-[#F4F4F5] hover:bg-white text-[#09090B]'
-                : 'bg-[#18181B] hover:bg-white/[0.06] text-[#F4F4F5] border border-white/[0.08]'
-            }`}
+            onClick={onOpenSavedWorkspaces}
+            className="w-full py-1 text-[12px] text-[#63635E] hover:text-[#141413] text-center transition duration-150 cursor-pointer"
           >
-            {processingVault ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Processing Vault...</span>
-              </>
-            ) : (
-              <span>{hasPendingDocs ? 'Process Vault' : 'Re-process Vault'}</span>
-            )}
+            Saved vaults ({savedWorkspacesCount})
           </button>
         )}
-
-        <button
-          type="button"
-          onClick={onOpenSavedWorkspaces}
-          className="w-full h-8 px-2.5 rounded-lg text-[11px] text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-white/[0.03] transition duration-150 flex items-center justify-between cursor-pointer"
-        >
-          <span className="flex items-center gap-1.5">
-            <FolderArchive className="w-3.5 h-3.5" />
-            <span>Saved Vaults</span>
-          </span>
-          <span className="font-mono tabular-nums text-[10px] px-1.5 py-0.5 rounded bg-[#18181B] border border-white/[0.06]">
-            {savedWorkspacesCount}
-          </span>
-        </button>
       </div>
     </aside>
-  );
-};
-
-interface EmptyOnboardingCanvasProps {
-  onLoadSampleInvestigation: () => void;
-  onUploadDocument: (doc: SourceDocument) => void;
-}
-
-export const EmptyOnboardingCanvas: React.FC<EmptyOnboardingCanvasProps> = ({
-  onLoadSampleInvestigation,
-  onUploadDocument,
-}) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [parsing, setParsing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setParsing(true);
-    setError(null);
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        const parsed = await parseUploadedFile(file);
-        onUploadDocument({
-          id: parsed.id,
-          name: parsed.fileName,
-          fileType: parsed.fileType,
-          sizeBytes: parsed.sizeBytes,
-          content: parsed.fullText,
-          imageFile: parsed.imageFile,
-          status: {
-            parsed: true,
-            redactedLocally: false,
-            graphIndexed: false,
-          },
-          timestamp: Date.now(),
-        });
-      } catch (err) {
-        setError(`Could not parse ${file.name}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    setParsing(false);
-  };
-
-  return (
-    <div className="flex-1 h-full bg-[#09090B] flex items-center justify-center p-6 lg:p-12 overflow-y-auto">
-      <div className="max-w-2xl w-full space-y-8">
-        <div className="text-center space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#111114] border border-white/[0.08] text-[11px] text-[#A1A1AA]">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Local-First Hybrid AI Studio</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#F4F4F5]">
-            Private knowledge graphs without raw cloud egress
-          </h1>
-          <p className="text-sm text-[#A1A1AA] max-w-xl mx-auto leading-relaxed">
-            SynapseVault redacts PII on-device, indexes entities into an interactive canvas, and
-            escalates only sanitized topology for cross-document synthesis.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Primary CTA Card: 1-Click Judge Demo */}
-          <button
-            type="button"
-            onClick={onLoadSampleInvestigation}
-            className="group text-left p-6 rounded-xl bg-[#111114] hover:bg-[#18181B] border border-white/[0.08] hover:border-white/[0.16] transition duration-150 flex flex-col justify-between space-y-5 cursor-pointer"
-          >
-            <div className="space-y-2.5">
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <h2 className="text-sm font-semibold tracking-tight text-[#F4F4F5]">
-                Load Sample Investigation
-              </h2>
-              <p className="text-xs text-[#A1A1AA] leading-relaxed">
-                Project Helios Thermal Incident — 3 docs with embedded PII and a hidden technical
-                contradiction.
-              </p>
-            </div>
-            <div className="inline-flex items-center gap-1.5 text-xs font-medium text-[#F4F4F5] group-hover:translate-x-0.5 transition duration-150">
-              <span>Run 1-click investigation</span>
-              <ArrowRight className="w-3.5 h-3.5 text-[#A1A1AA]" />
-            </div>
-          </button>
-
-          {/* Secondary CTA Card: Drag & Drop Upload */}
-          <label
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={async (e) => {
-              e.preventDefault();
-              setIsDragging(false);
-              await handleFiles(e.dataTransfer.files);
-            }}
-            className={`p-6 rounded-xl border border-dashed transition duration-150 flex flex-col justify-between space-y-5 cursor-pointer ${
-              isDragging
-                ? 'bg-indigo-500/[0.06] border-indigo-400/60'
-                : 'bg-[#111114] hover:bg-[#18181B] border-white/[0.14] hover:border-white/[0.24]'
-            }`}
-          >
-            <div className="space-y-2.5">
-              <div className="w-8 h-8 rounded-lg bg-[#18181B] border border-white/[0.08] flex items-center justify-center text-[#A1A1AA]">
-                {parsing ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-                ) : (
-                  <Upload className="w-4 h-4" />
-                )}
-              </div>
-              <h2 className="text-sm font-semibold tracking-tight text-[#F4F4F5]">
-                {parsing ? 'Parsing local files...' : 'Drop PDF, Markdown, or Images'}
-              </h2>
-              <p className="text-xs text-[#A1A1AA] leading-relaxed">
-                Client-side parsing via pdfjs-dist and FileReader. Supports PDF, TXT, MD, JPEG, and
-                PNG.
-              </p>
-            </div>
-            <span className="text-xs font-medium text-[#A1A1AA]">
-              Browse files on your device
-            </span>
-            <input
-              type="file"
-              multiple
-              accept=".pdf,.txt,.md,image/png,image/jpeg,image/webp"
-              onChange={(e) => {
-                handleFiles(e.target.files);
-                e.target.value = '';
-              }}
-              className="hidden"
-            />
-          </label>
-        </div>
-
-        {error && (
-          <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 text-center">
-            {error}
-          </div>
-        )}
-      </div>
-    </div>
   );
 };
