@@ -66,36 +66,34 @@ flowchart TD
 
 ---
 
-## 3. Studio Interface (`#09090B` Calm Studio UX)
+## 3. Archival Paper & Ink Editorial Workspace (`#FBFBF9`)
 
-SynapseVault uses a progressive-disclosure dark studio layout inspired by Linear, Obsidian Canvas, and NotebookLM:
+SynapseVault uses a quiet, restrained paper-and-ink editorial workspace inspired by Notion, Readwise Reader, and Apple Notes:
 
-### 1. Slim 52px Top Bar & Telemetry Popover (`src/components/TelemetryHeader.tsx`)
-- **Left**: Sidebar collapse/expand toggle, `SynapseVault` wordmark, and compact `Online` / `Offline Local` status dot.
-- **Center**: Segmented workspace switcher: **`Graph`** | **`Privacy Firewall`** | **`Cloud Brief`**.
+### 1. Minimal 48px Top Bar & Engine Popover (`src/components/TelemetryHeader.tsx`)
+- **Left**: Collapsible sidebar toggle + `SynapseVault` wordmark in `Newsreader`.
+- **Center**: Underline navigation tabs: **`Canvas`** | **`Redactions`** | **`Briefing`**.
 - **Right**:
-  - **Hybrid Status Pill**: Displays live status (`On-Device · 142ms`, `Cloud Fallback · 549ms`, or `Nano Downloadable`). Clicking opens the **Telemetry Popover** containing the Routing Mode selector (`Auto Hybrid`, `Strict Local`, `Cloud Compare`), Gemini Nano readiness/flags info, Firestore cache sync state, and cumulative local runs/tokens/USD saved.
-  - **Benchmark** button (opens the side-by-side comparison modal).
-  - **Auth** pill (Anonymous `Judge` auto-auth with optional Google `Sign in` / `Sign Out`).
+  - **Engine Status Trigger**: Compact `6px` dot (`#166534` Local, `#1D4ED8` Cloud) + latency label (`Local · 142ms` or `Cloud`). Clicking opens a white popover with **Routing Mode** radio controls (`Auto Hybrid`, `Strict Local`, `Cloud Only`), Gemini Nano status/download progress, non-Chrome fallback guidance, total local runs / `$` saved, and **`Run local vs. cloud benchmark`**.
+  - **Account Control**: Compact avatar initial / `Sign in` menu (Anonymous Judge auto-auth with optional Google Sign-In).
 
-### 2. Guided Onboarding & Collapsible Source Vault (`src/components/SourceVault.tsx`)
-- **Empty State Onboarding Canvas**: On initial load, presents a centered canvas with two clear actions:
-  1. **Load Sample Investigation**: 1-click launch of the **Project Helios Battery Thermal Incident** multi-document case study (Field Engineering Log #4B with PII, Vendor Cell Spec Sheet, and Quality Audit Memo with a deliberate contradiction).
-  2. **Drop Local Sources**: Drag-and-drop card for PDF, TXT/MD, and JPEG/PNG files parsed client-side via `pdfjs-dist`.
-- **Collapsible `260px` Sources Sidebar**: Lists staged sources with compact local shield / processing status icons, `+ Add Sources` dropzone button, `Process Vault` CTA, and `Saved Vaults` drawer access.
+### 2. Editorial Empty State & 240px Source Sidebar (`src/components/SourceVault.tsx`)
+- **Empty State**: Centered editorial canvas on `#FBFBF9` with `Newsreader` headline (*"Private research, mapped locally."*), concise summary, solid `#141413` **`Load sample case study`** button (1-click launch of the **Project Helios** 3-document case study), and bordered **`Upload files`** button.
+- **Collapsible `240px` `#F3F3EF` Sidebar**: Clean vertical list of loaded files (clicking focuses a document on the canvas), `+ Add documents` dropzone (`PDF`, `MD`, `TXT`, `PNG`, `JPG`), and `Saved vaults` access.
 
-### 3. Canvas-First Graph Workspace & Floating Command Dock (`src/components/GraphCanvas.tsx`)
-- Full-bleed `#27272A` dot-grid `@xyflow/react` canvas with clean left-accent node cards (`Entity`, `Concept`, `Claim`, `Risk`, `Evidence`), curved edges, high-contrast rose `CONTRADICTS` relations, and toggleable minimap (hidden by default).
-- **Floating Bottom Command Dock**: Centered dock featuring an inline **`Ask Local Vault...`** / **`Filter`** command bar (with floating response card above the dock showing accurate `On-Device` vs `Cloud Fallback` attribution) alongside `Zoom In`, `Zoom Out`, `Fit View`, and `Minimap` controls.
-- **360px Slide-Over Node Inspector Drawer**: Clicking any graph node slides open a right-side drawer displaying the summary, confidence, extraction latency, linked source file, and connected relationships.
+### 3. Architectural Knowledge Graph Canvas (`src/components/GraphCanvas.tsx`)
+- Full-height `#FBFBF9` canvas with subtle `#D8D8D2` dots (minimap removed for visual clarity).
+- **Minimal Node Cards**: Crisp white rectangles (`#FFFFFF`, `1px` `#DFDFD9` border) showing solely a `6px` category dot and `13px` title.
+- **Edges**: Thin `#C8C8C0` bezier curves; `CONTRADICTS` relations render as `#B91C1C` dashed curves with clean white-backed labels.
+- **Bottom Ask Bar**: Centered Spotlight-style `"Ask your local vault..."` pill input displaying answers in a dismissible white popover directly above the input.
+- **340px Slide-Over Inspector**: Clicking any node opens a right-side white drawer with category dot, `Newsreader` serif node title, summary, linked source, and connections.
 
-### 4. Focused Full-View Tabs (`src/components/IntelligencePanel.tsx`)
-- **`Privacy Firewall`**: Summary metrics strip (`Total Blocked`, `Persons`, `Contacts`, `Financial`, `Gov / Secret IDs`), side-by-side split diff (`Original Local Input` vs. `Sanitized Output`) with color-coded chips, and the `Blocked PII Items` registry.
-- **`Cloud Brief`**: Document-style executive report with **`Run Cloud Synthesis`** (`gemini-3.8-flash` with sanitized payload inspector), integrated **`Audio Briefing`** bar (`gemini-3.1-flash-tts-preview` / Web Speech fallback + WAV download), Executive Summary, `Detected Contradictions`, `Knowledge Gaps`, and `Action Plan`.
+### 4. Editorial Full-Page Views (`src/components/IntelligencePanel.tsx`)
+- **`Redactions` Tab**: Single-line header summary (*"X sensitive items blocked locally before cloud sync"*), document selector dropdown, two-column split layout (`Original on device` vs. `Sanitized for cloud`) separated by a `1px` hairline divider, and stark `#141413` monospace `[REDACTED_*]` bars.
+- **`Briefing` Tab**: Published-memo layout (`max-w-2xl`) with `Generate cloud briefing` + collapsible `Inspect sanitized payload`, `Newsreader` report title, minimal inline Audio Briefing bar (`gemini-3.1-flash-tts-preview` / Web Speech fallback), `Executive Summary`, `Detected Contradictions` (`2px` `#B91C1C` left border), `Knowledge Gaps`, and `Recommended Actions`.
 
-### 5. Side-by-Side Hybrid Benchmark Modal (`src/components/BenchmarkModal.tsx`)
-- Runs identical inputs through **On-Device Gemini Nano** and **Cloud Gemini 3.8 Flash**.
-- Displays visual delta callouts (`Latency Delta`, `0 B Network Egress`, `$0.00 Local Cost`) above a clean comparison table.
+### 5. Minimal Benchmark Modal (`src/components/BenchmarkModal.tsx`)
+- Clean white modal (`"On-Device vs. Cloud Benchmark"`) with `Run comparison` button and border-collapsed `tabular-nums` comparison table (`Latency (ms)`, `Network Egress`, `Privacy Exposure`, `Cost`, `Extracted Nodes`).
 
 ---
 
@@ -180,10 +178,10 @@ To test browser-native on-device inference using Gemini Nano in Google Chrome:
    - Open `chrome://components`
    - Locate **Optimization Guide On Device Model**
    - Click **Check for update** until status indicates *Up-to-date*.
-5. Open SynapseVault (`http://localhost:5173`). The Hybrid Status Pill in the top bar will indicate **`On-Device Ready`** (and clicking it opens the Telemetry Popover showing `Gemini Nano: Ready`).
+5. Open SynapseVault (`http://localhost:5173`). The engine indicator in the top bar will show **`Local`** (and clicking it opens the popover showing `Gemini Nano: Ready`).
 
 > [!NOTE]
-> **Graceful Degradation:** If tested in Safari, Firefox, or Chrome without flags, SynapseVault gracefully degrades to Cloud `gemini-3.8-flash` (with transient fallback) via Firebase AI Logic and surfaces the browser notice cleanly inside the Hybrid Status Popover.
+> **Graceful Degradation:** If tested in Safari, Firefox, or Chrome without flags, SynapseVault gracefully degrades to Cloud `gemini-3.8-flash` (with transient fallback) via Firebase AI Logic and surfaces the fallback note cleanly inside the engine popover.
 
 ---
 
